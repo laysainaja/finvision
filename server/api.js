@@ -6,6 +6,7 @@ import { autenticar, authConfigurado } from './auth.js';
 import { fluxoRouter } from './fluxo.js';
 import { conciliacaoRouter } from './conciliacao.js';
 import { equipeRouter, conviteRouter, infoConvite } from './equipe.js';
+import { emailConfigurado } from './email.js';
 
 export const api = express.Router();
 
@@ -26,7 +27,8 @@ api.get('/saude', async (req, res) => {
     }
   }
   const ok = banco === 'ok' && authConfigurado;
-  res.status(ok ? 200 : 503).json({ ok, config, banco });
+  // E-mail é opcional: sem ele o sistema funciona, só não envia convites automaticamente.
+  res.status(ok ? 200 : 503).json({ ok, config, banco, email: emailConfigurado ? 'resend' : 'desligado' });
 });
 // Pública: a tela de login mostra de qual empresa é o convite antes de a pessoa entrar.
 api.get('/convites/:token', infoConvite);

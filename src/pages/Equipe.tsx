@@ -27,8 +27,22 @@ function LinkConvite({ convite, empresa, onClose }: { convite: Convite; empresa:
   };
   return (
     <Modal titulo="Convite criado" onClose={onClose} rodape={<button className="btn btn-primary" onClick={onClose}>Concluir</button>}>
+      {convite.email_enviado && (
+        <div className="convite-box">
+          <b>✓ E-mail enviado para {convite.email}</b>
+          <span className="small">Se não chegar em alguns minutos, peça para olhar o spam ou envie o link abaixo.</span>
+        </div>
+      )}
+      {convite.email_enviado === false && convite.email_motivo !== 'nao_configurado' && (
+        <div className="aviso-box">
+          {convite.email_motivo === 'modo_teste'
+            ? 'O e-mail não foi enviado: o Resend está em modo de teste (falta verificar um domínio). Envie o link abaixo pelo WhatsApp ou e-mail.'
+            : 'Não foi possível enviar o e-mail agora. Envie o link abaixo pelo WhatsApp ou e-mail.'}
+        </div>
+      )}
       <p style={{ margin: 0 }}>
-        Envie este link para <b>{convite.email}</b>. Ele vale até <b>{dataBR(convite.expira_em.slice(0, 10))}</b> e só funciona com esse e-mail.
+        {convite.email_enviado ? 'Você também pode enviar' : 'Envie'} este link para <b>{convite.email}</b>. Ele vale até{' '}
+        <b>{dataBR(convite.expira_em.slice(0, 10))}</b> e só funciona com esse e-mail.
       </p>
       <input className="input" readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Link do convite" />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -68,7 +82,7 @@ function NovoConvite({ onClose, onCriado }: { onClose: () => void; onCriado: (c:
       rodape={
         <>
           <button className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" onClick={criar} disabled={enviando}>Gerar link de convite</button>
+          <button className="btn btn-primary" onClick={criar} disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar convite'}</button>
         </>
       }
     >
@@ -82,7 +96,7 @@ function NovoConvite({ onClose, onCriado }: { onClose: () => void; onCriado: (c:
           <option value="dono">Dono: tudo, inclusive equipe e dados da empresa</option>
         </select>
       </Field>
-      <div className="muted small">Você vai receber um link para enviar à pessoa. Ela precisa entrar (ou criar a conta) com este mesmo e-mail.</div>
+      <div className="muted small">Enviamos o convite por e-mail (quando disponível) e você também recebe um link para mandar pelo WhatsApp. A pessoa precisa entrar (ou criar a conta) com este mesmo e-mail.</div>
     </Modal>
   );
 }

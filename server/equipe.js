@@ -1,6 +1,7 @@
 import express from 'express';
 import { all, get, transaction } from './db.js';
 import { check } from './util.js';
+import { enviarEmail, emailConvite } from './email.js';
 
 // ---------- Rotas da empresa atual (montadas em /empresas/:eid, já com req.eid e req.papel) ----------
 
@@ -84,8 +85,29 @@ equipeRouter.post('/convites', async (req, res) => {
       { eid: req.eid, email, papel, uid: req.userId },
     );
   });
-  res.status(201).json(convite);
+
+  // O convite já está salvo; o e-mail é um extra. Se falhar, a tela oferece o link para copiar/WhatsApp.
+  const [empresa, autor] = await Promise.all([
+    get('SELECT nome FROM empresas WHERE id = :eid', { eid: req.eid }),
+    get('SELECT email FROM auth.users WHERE id = :uid', { uid: req.userId }),
+  ]);
+  const { assunto, html, texto } = emailConvite({
+    empresa: empresa.nome,
+    convidadoPor: autor?.email ?? 'Um membro da equipe',
+    papel,
+    link: `${urlDoSite(req)}/#/convite/${convite.token}`,
+    validoAte: new Date(convite.expira_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+  });
+  const envio = await enviarEmail({ para: email, assunto, html, texto });
+  res.status(201).json({ ...convite, email_enviado: envio.enviado, email_motivo: envio.motivo ?? null });
 });
+
+/** Endereço público do site para montar o link: APP_URL, se definido; senão o próprio host da requisição. */
+function urlDoSite(req) {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
+  const proto = req.get('x-forwarded-proto')?.split(',')[0] ?? req.protocol;
+  return `${proto}://${req.get('x-forwarded-host') ?? req.get('host')}`;
+}
 
 equipeRouter.delete('/convites/:id', async (req, res) => {
   exigirDono(req);

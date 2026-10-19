@@ -26,6 +26,9 @@ export interface Convite {
   criado_em: string;
   expira_em: string;
   expirado: boolean;
+  /** Só vem logo após criar o convite. */
+  email_enviado?: boolean;
+  email_motivo?: 'nao_configurado' | 'modo_teste' | 'erro' | null;
 }
 
 export interface InfoConvite {
