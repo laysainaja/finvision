@@ -1,14 +1,32 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { all, get, transaction, hoje, STATUS_SQL } from './db.js';
+import { sql, all, get, transaction, hoje, STATUS_SQL } from './db.js';
 import { HttpError, check, isDate, isCents, optText, optId, idParam, pgArray, addMonths, addDays } from './util.js';
-import { autenticar } from './auth.js';
+import { autenticar, authConfigurado } from './auth.js';
 import { fluxoRouter } from './fluxo.js';
 import { conciliacaoRouter } from './conciliacao.js';
 
 export const api = express.Router();
 
-api.get('/saude', (req, res) => res.json({ ok: true }));
+// Diagnóstico de implantação: diz só se cada variável existe e se o banco responde, nunca os valores.
+api.get('/saude', async (req, res) => {
+  const config = {
+    DATABASE_URL: !!process.env.DATABASE_URL,
+    VITE_SUPABASE_URL: !!(process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL),
+    VITE_SUPABASE_ANON_KEY: !!(process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY),
+  };
+  let banco = 'não configurado';
+  if (sql) {
+    try {
+      await sql`select 1 from membros limit 1`;
+      banco = 'ok';
+    } catch (e) {
+      banco = `erro ${e.code ?? ''}: ${String(e.message).replace(/postgres(ql)?:\/\/\S+/g, '[url]').slice(0, 120)}`;
+    }
+  }
+  const ok = banco === 'ok' && authConfigurado;
+  res.status(ok ? 200 : 503).json({ ok, config, banco });
+});
 api.use(autenticar);
 
 // ---------- Empresas (cada usuário só vê as empresas das quais é membro) ----------

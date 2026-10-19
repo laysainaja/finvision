@@ -3,10 +3,10 @@ import { HttpError } from './util.js';
 
 const supabaseUrl = (process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '');
 const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
-if (!supabaseUrl || !anonKey) throw new Error('Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env ou nas variáveis da Vercel.');
+export const authConfigurado = !!(supabaseUrl && anonKey);
 
 // Projetos novos do Supabase assinam o token com chaves assimétricas publicadas neste JWKS.
-const jwks = createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`));
+const jwks = authConfigurado ? createRemoteJWKSet(new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`)) : null;
 
 // Projetos com a chave antiga (HS256) não verificam pelo JWKS: nesse caso perguntamos ao próprio Supabase
 // e guardamos a resposta por alguns minutos para não repetir a chamada a cada requisição.
@@ -24,6 +24,7 @@ async function validarNoSupabase(token) {
 
 /** Middleware: exige `Authorization: Bearer <token do Supabase>` e preenche req.userId. */
 export async function autenticar(req, res, next) {
+  if (!authConfigurado) throw new HttpError(503, 'Servidor sem VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. Veja /api/saude.');
   const token = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
   if (!token) throw new HttpError(401, 'Faça login para continuar.');
   let userId = null;

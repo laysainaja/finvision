@@ -2,9 +2,10 @@ import postgres from 'postgres';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 const url = process.env.DATABASE_URL;
-if (!url) throw new Error('Defina DATABASE_URL (string de conexão do Postgres/Supabase) no arquivo .env ou nas variáveis da Vercel.');
+// Sem DATABASE_URL o servidor sobe mesmo assim (para /api/saude explicar o problema); as consultas é que falham.
+export const erroConfigBanco = url ? null : 'Defina DATABASE_URL (string de conexão do Postgres/Supabase) no arquivo .env ou nas variáveis da Vercel.';
 
-export const sql = postgres(url, {
+export const sql = url && postgres(url, {
   prepare: false, // obrigatório no pooler do Supabase (modo transação, porta 6543)
   max: Number(process.env.DB_POOL ?? 3),
   idle_timeout: 20,
@@ -38,7 +39,7 @@ function compilar(texto, params) {
 /** Executa e devolve todas as linhas. Dentro de `transaction`, usa a transação automaticamente. */
 export async function all(texto, params = {}) {
   const [s, v] = compilar(texto, params);
-  return [...(await (txAtual.getStore() ?? sql).unsafe(s, v))];
+  return [...(await conexao().unsafe(s, v))];
 }
 
 export async function get(texto, params = {}) {
@@ -46,7 +47,14 @@ export async function get(texto, params = {}) {
 }
 
 export function transaction(fn) {
+  if (!sql) throw new Error(erroConfigBanco);
   return sql.begin((tx) => txAtual.run(tx, fn));
+}
+
+function conexao() {
+  const c = txAtual.getStore() ?? sql;
+  if (!c) throw new Error(erroConfigBanco);
+  return c;
 }
 
 /** Data de hoje no fuso de Brasília (o servidor na nuvem roda em UTC). */
