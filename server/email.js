@@ -1,15 +1,46 @@
-// Envio de e-mails transacionais pelo Resend (https://resend.com).
-// Sem RESEND_API_KEY o sistema funciona normalmente: só não envia, e a tela oferece o link para copiar.
+// Envio de e-mails transacionais (convites). Ordem de preferência:
+//   1. SMTP (ex.: Gmail do Google Workspace com senha de app): SMTP_USER + SMTP_PASS
+//   2. Resend (https://resend.com): RESEND_API_KEY
+// Sem nenhum dos dois o sistema funciona normalmente: só não envia, e a tela oferece o link para copiar.
+import nodemailer from 'nodemailer';
 
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS?.replace(/\s/g, ''); // senha de app do Google vem com espaços
 const API_KEY = process.env.RESEND_API_KEY;
-// Sem domínio verificado, o Resend só aceita o remetente de teste e só entrega para o e-mail dono da conta Resend.
-const REMETENTE = process.env.EMAIL_FROM || 'FinVision <onboarding@resend.dev>';
 
-export const emailConfigurado = !!API_KEY;
+export const provedorEmail = SMTP_USER && SMTP_PASS ? 'smtp' : API_KEY ? 'resend' : null;
+export const emailConfigurado = !!provedorEmail;
+
+// O Gmail só aceita remetente igual à conta (ou a um alias dela); por isso o padrão usa o próprio SMTP_USER.
+// Sem domínio verificado, o Resend só aceita o remetente de teste e só entrega para o e-mail dono da conta Resend.
+const REMETENTE =
+  process.env.EMAIL_FROM || (provedorEmail === 'smtp' ? `FinVision <${SMTP_USER}>` : 'FinVision <onboarding@resend.dev>');
+
+const smtp =
+  provedorEmail === 'smtp' &&
+  nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: Number(process.env.SMTP_PORT || 465) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASS },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
+  });
 
 /** @returns {Promise<{ enviado: boolean, motivo?: 'nao_configurado' | 'modo_teste' | 'erro' }>} */
 export async function enviarEmail({ para, assunto, html, texto }) {
-  if (!API_KEY) return { enviado: false, motivo: 'nao_configurado' };
+  if (!provedorEmail) return { enviado: false, motivo: 'nao_configurado' };
+  if (provedorEmail === 'smtp') {
+    try {
+      await smtp.sendMail({ from: REMETENTE, to: para, subject: assunto, html, text: texto });
+      return { enviado: true };
+    } catch (e) {
+      // Ex.: senha de app inválida (535), conta bloqueou o acesso, limite diário do Gmail.
+      console.error('Falha no envio por SMTP:', e.responseCode ?? '', e.message);
+      return { enviado: false, motivo: 'erro' };
+    }
+  }
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',

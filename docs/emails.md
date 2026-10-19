@@ -6,7 +6,7 @@
 |---|---|---|
 | Confirmar conta (primeiro acesso) | Supabase Auth → **SMTP do Gmail da Thunderlabs** | ✅ |
 | Esqueci minha senha | Supabase Auth → **SMTP do Gmail da Thunderlabs** | ✅ |
-| Convite para a equipe | API do FinVision → Resend (modo de teste, sem domínio) | ❌ só o dono da conta Resend; os demais recebem o link pelo WhatsApp |
+| Convite para a equipe | API do FinVision → **SMTP do Gmail** (`SMTP_USER`/`SMTP_PASS`); sem eles, Resend | ✅ com SMTP do Gmail |
 
 ### SMTP do Gmail (Supabase → Authentication → Emails → SMTP Settings)
 
@@ -41,16 +41,19 @@
 - As artes são servidas pelo próprio site (`/emails/primeiro-acesso.jpg` e `/emails/nova-senha.jpg`, pasta `public/emails/`).
   Para mudar textos ou cores da arte, edite `design/emails/arte.html` e rode `powershell -File scripts/gerar-artes-email.ps1`.
 
-## Convites por e-mail (Resend)
+## Convites por e-mail
 
-Variáveis no `.env` e na Vercel: `RESEND_API_KEY` (chave com permissão **Sending access**), `APP_URL`
-(`https://finvision-focus-ebd6.vercel.app`) e, quando houver domínio, `EMAIL_FROM`.
+A API do FinVision escolhe o envio nesta ordem: **SMTP** (se `SMTP_USER` e `SMTP_PASS` existirem) → **Resend** (se `RESEND_API_KEY` existir) → só o link na tela.
+O diagnóstico `/api/saude` mostra qual está ativo (`"email": "smtp" | "resend" | "desligado"`).
 
-Sem domínio verificado, o Resend só entrega para o e-mail dono da conta Resend. Para liberar para qualquer pessoa:
+Variáveis no `.env` e na Vercel:
 
-1. Resend → **Domains** → **Add Domain**, de preferência um subdomínio como `mail.thunderlabs.com.br`. Região **São Paulo**, se houver.
-2. Cadastre os registros DNS que o Resend mostrar no painel onde o DNS do domínio é administrado e clique em **Verify**.
-   Os registros ficam no subdomínio e não afetam o e-mail do Google.
-3. Na Vercel, cadastre `EMAIL_FROM` = `FinVision <nao-responda@mail.thunderlabs.com.br>` e faça o Redeploy.
+| Variável | Valor |
+|---|---|
+| `SMTP_USER` | e-mail da conta Google Workspace (o mesmo do SMTP do Supabase) |
+| `SMTP_PASS` | uma **senha de app** do Google (pode ser a mesma do Supabase ou outra só para o FinVision) |
+| `APP_URL` | `https://finvision-focus-ebd6.vercel.app` |
+| `EMAIL_FROM` | opcional; padrão `FinVision <SMTP_USER>` |
 
-(Alternativa sem domínio: fazer os convites saírem pelo mesmo SMTP do Gmail. Exige uma pequena mudança no servidor.)
+O Resend continua como alternativa. Sem domínio verificado ele só entrega para o dono da conta Resend; com domínio
+(ex.: `mail.thunderlabs.com.br` verificado em Resend → Domains), cadastre `EMAIL_FROM` com um endereço desse domínio.
