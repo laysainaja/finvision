@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { api, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
-import { linkDoConvite } from '../lib/convite';
 import { dataBR } from '../lib/format';
 import type { Convite, Membro, Papel } from '../types';
 import { Field, Icon, Modal, useAcao, useToast } from '../components/ui';
@@ -15,7 +14,7 @@ function mensagemConvite(empresa: string, link: string) {
 /** Mostra o link de um convite com atalhos para copiar e compartilhar. */
 function LinkConvite({ convite, empresa, onClose }: { convite: Convite; empresa: string; onClose: () => void }) {
   const toast = useToast();
-  const link = linkDoConvite(convite.token);
+  const link = convite.link;
   const texto = mensagemConvite(empresa, link);
   const copiar = async (t: string, msg: string) => {
     try {

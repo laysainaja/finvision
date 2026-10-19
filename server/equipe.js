@@ -57,14 +57,16 @@ equipeRouter.delete('/membros/:uid', async (req, res) => {
 
 equipeRouter.get('/convites', async (req, res) => {
   exigirDono(req);
-  res.json(
-    await all(
-      `SELECT id, email, papel, token, criado_em, expira_em, (expira_em < now()) AS expirado
-       FROM convites WHERE empresa_id = :eid AND aceito_em IS NULL ORDER BY criado_em DESC`,
-      { eid: req.eid },
-    ),
+  const convites = await all(
+    `SELECT id, email, papel, token, criado_em, expira_em, (expira_em < now()) AS expirado
+     FROM convites WHERE empresa_id = :eid AND aceito_em IS NULL ORDER BY criado_em DESC`,
+    { eid: req.eid },
   );
+  res.json(convites.map((c) => ({ ...c, link: linkConvite(req, c.token) })));
 });
+
+// O link sempre aponta para o site público (APP_URL), mesmo se o convite for criado numa cópia local do sistema.
+const linkConvite = (req, token) => `${urlDoSite(req)}/#/convite/${token}`;
 
 equipeRouter.post('/convites', async (req, res) => {
   exigirDono(req);
@@ -95,11 +97,11 @@ equipeRouter.post('/convites', async (req, res) => {
     empresa: empresa.nome,
     convidadoPor: autor?.email ?? 'Um membro da equipe',
     papel,
-    link: `${urlDoSite(req)}/#/convite/${convite.token}`,
+    link: linkConvite(req, convite.token),
     validoAte: new Date(convite.expira_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
   });
   const envio = await enviarEmail({ para: email, assunto, html, texto });
-  res.status(201).json({ ...convite, email_enviado: envio.enviado, email_motivo: envio.motivo ?? null });
+  res.status(201).json({ ...convite, link: linkConvite(req, convite.token), email_enviado: envio.enviado, email_motivo: envio.motivo ?? null });
 });
 
 /** Endereço público do site para montar o link: APP_URL, se definido; senão o próprio host da requisição. */

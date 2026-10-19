@@ -26,6 +26,8 @@ export interface Convite {
   criado_em: string;
   expira_em: string;
   expirado: boolean;
+  /** Link público do convite, montado pelo servidor com o endereço oficial do site. */
+  link: string;
   /** Só vem logo após criar o convite. */
   email_enviado?: boolean;
   email_motivo?: 'nao_configurado' | 'modo_teste' | 'erro' | null;

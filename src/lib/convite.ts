@@ -32,5 +32,3 @@ export function limparConvite() {
     /* nada a limpar */
   }
 }
-
-export const linkDoConvite = (token: string) => `${location.origin}/#/convite/${token}`;
