@@ -40,43 +40,13 @@ na tela, que oferece o link para enviar pelo WhatsApp. **Não ligue o SMTP do Su
 
 ## Modelos em português (Supabase → Authentication → Emails → Templates)
 
-### Confirm signup
+Os modelos com arte ficam em `design/emails/`. Abra o arquivo, copie **todo** o conteúdo e cole no campo **Message body** (modo *Source*/HTML) do modelo correspondente:
 
-**Subject:** `Confirme sua conta no FinVision`
+| Modelo no Supabase | Assunto (Subject) | Arquivo |
+|---|---|---|
+| **Confirm signup** | `Bem-vindo(a) ao FinVision! Confirme seu e-mail` | `design/emails/modelo-primeiro-acesso.html` |
+| **Reset password** | `Crie uma nova senha no FinVision` | `design/emails/modelo-nova-senha.html` |
 
-```html
-<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#17202e">
-  <div style="font-size:18px;font-weight:700;color:#0f766e">FinVision</div>
-  <h2 style="font-weight:600">Confirme seu e-mail</h2>
-  <p style="color:#3b4554;line-height:1.55">Falta só um passo para ativar sua conta. Clique no botão abaixo para confirmar seu e-mail.</p>
-  <p><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px">Confirmar e-mail</a></p>
-  <p style="font-size:12px;color:#5b6576">Se você não criou uma conta no FinVision, ignore este e-mail.</p>
-</div>
-```
-
-### Reset password
-
-**Subject:** `Crie uma nova senha no FinVision`
-
-```html
-<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#17202e">
-  <div style="font-size:18px;font-weight:700;color:#0f766e">FinVision</div>
-  <h2 style="font-weight:600">Redefinir senha</h2>
-  <p style="color:#3b4554;line-height:1.55">Recebemos um pedido para criar uma nova senha para sua conta. Clique no botão abaixo para continuar.</p>
-  <p><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px">Criar nova senha</a></p>
-  <p style="font-size:12px;color:#5b6576">Se você não pediu isso, ignore este e-mail. Sua senha atual continua valendo.</p>
-</div>
-```
-
-### Change email address
-
-**Subject:** `Confirme seu novo e-mail no FinVision`
-
-```html
-<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#17202e">
-  <div style="font-size:18px;font-weight:700;color:#0f766e">FinVision</div>
-  <h2 style="font-weight:600">Confirme a troca de e-mail</h2>
-  <p style="color:#3b4554;line-height:1.55">Confirme a alteração de {{ .Email }} para {{ .NewEmail }}.</p>
-  <p><a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:8px">Confirmar novo e-mail</a></p>
-</div>
-```
+As artes são servidas pelo próprio site (`/emails/primeiro-acesso.jpg` e `/emails/nova-senha.jpg`, pasta `public/emails/`).
+Para mudar textos ou cores da arte, edite `design/emails/arte.html` e rode `powershell -File scripts/gerar-artes-email.ps1`.
+Prévias renderizadas: `design/emails/previa-*.png`.

@@ -1,0 +1,28 @@
+<!-- Supabase → Authentication → Emails → Templates → "Confirm signup". Assunto: Bem-vindo(a) ao FinVision! Confirme seu e-mail -->
+<!doctype html>
+<html lang="pt-BR">
+<body style="margin:0;padding:0;background:#f3f6f5">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6f5;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e1ebe8;border-radius:16px;overflow:hidden">
+        <tr><td>
+          <a href="{{ .ConfirmationURL }}" style="display:block;text-decoration:none">
+            <img src="https://finvision-focus-ebd6.vercel.app/emails/primeiro-acesso.jpg" width="600" alt="Bem-vindo(a) ao FinVision! Falta só confirmar seu e-mail." style="display:block;width:100%;max-width:600px;height:auto;border:0;color:#0f766e;font-size:18px;font-weight:bold">
+          </a>
+        </td></tr>
+        <tr><td align="center" style="padding:28px 36px 8px;color:#17202e;font-size:16px;line-height:1.55">
+          <p style="margin:0 0 6px;font-size:17px;font-weight:600">Olá!</p>
+          <p style="margin:0">Que bom ter você por aqui. Toque no botão abaixo para confirmar seu e&#8209;mail e ativar sua conta no FinVision.</p>
+        </td></tr>
+        <tr><td align="center" style="padding:22px 36px 6px">
+          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 28px;border-radius:10px">Confirmar meu e-mail</a>
+        </td></tr>
+        <tr><td align="center" style="padding:18px 36px 30px;color:#6b7680;font-size:13px;line-height:1.5">
+          O link vale por 1 hora e só pode ser usado uma vez. Se não foi você que criou esta conta, pode ignorar este e&#8209;mail.
+        </td></tr>
+      </table>
+      <p style="margin:16px 0 0;color:#9aa5ad;font-size:12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">FinVision · gestão financeira</p>
+    </td></tr>
+  </table>
+</body>
+</html>
