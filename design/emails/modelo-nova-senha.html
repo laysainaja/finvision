@@ -1,28 +1,11 @@
-<!-- Supabase → Authentication → Emails → Templates → "Reset password". Assunto: Crie uma nova senha no FinVision -->
-<!doctype html>
-<html lang="pt-BR">
-<body style="margin:0;padding:0;background:#f3f6f5">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6f5;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
-    <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e1ebe8;border-radius:16px;overflow:hidden">
-        <tr><td>
-          <a href="{{ .ConfirmationURL }}" style="display:block;text-decoration:none">
-            <img src="https://finvision-focus-ebd6.vercel.app/emails/nova-senha.jpg" width="600" alt="Vamos criar uma nova senha? É rapidinho." style="display:block;width:100%;max-width:600px;height:auto;border:0;color:#0f766e;font-size:18px;font-weight:bold">
-          </a>
-        </td></tr>
-        <tr><td align="center" style="padding:28px 36px 8px;color:#17202e;font-size:16px;line-height:1.55">
-          <p style="margin:0 0 6px;font-size:17px;font-weight:600">Olá!</p>
-          <p style="margin:0">Recebemos um pedido para criar uma nova senha na sua conta do FinVision. Toque no botão abaixo para escolher a nova senha.</p>
-        </td></tr>
-        <tr><td align="center" style="padding:22px 36px 6px">
-          <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;padding:14px 28px;border-radius:10px">Criar nova senha</a>
-        </td></tr>
-        <tr><td align="center" style="padding:18px 36px 30px;color:#6b7680;font-size:13px;line-height:1.5">
-          O link vale por 1 hora. Se não foi você que pediu, pode ignorar este e&#8209;mail: sua senha continua a mesma.
-        </td></tr>
-      </table>
-      <p style="margin:16px 0 0;color:#9aa5ad;font-size:12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">FinVision · gestão financeira</p>
-    </td></tr>
-  </table>
-</body>
-</html>
+<div style="margin:0;padding:32px 16px;background:#F3F6F5;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#17202E;">
+  <div style="max-width:520px;margin:0 auto;background:#FFFFFF;border:1px solid #E1EBE8;border-radius:16px;overflow:hidden;text-align:center;">
+    <a href="{{ .ConfirmationURL }}" style="display:block;text-decoration:none;"><img src="https://finvision-focus-ebd6.vercel.app/emails/nova-senha.jpg" width="520" alt="Vamos criar uma nova senha?" style="display:block;width:100%;height:auto;border:0;"></a>
+    <div style="padding:28px 24px 32px;">
+      <p style="margin:0 0 8px;font-size:16px;line-height:1.5;font-weight:600;">Olá!</p>
+      <p style="margin:0 0 24px;font-size:16px;line-height:1.5;">Recebemos um pedido para criar uma nova senha na sua conta do FinVision.</p>
+      <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 28px;background-color:#0F766E;color:#FFFFFF;border:1px solid #0F766E;text-decoration:none;font-weight:600;font-size:16px;border-radius:12px;">Criar nova senha</a>
+      <p style="margin:24px 0 0;font-size:14px;line-height:1.5;color:#6B7680;">O link vale por 1 hora. Se não foi você que pediu, pode ignorar este e-mail: sua senha continua a mesma.</p>
+    </div>
+  </div>
+</div>
