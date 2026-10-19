@@ -5,6 +5,7 @@ import { HttpError, check, isDate, isCents, optText, optId, idParam, pgArray, ad
 import { autenticar, authConfigurado } from './auth.js';
 import { fluxoRouter } from './fluxo.js';
 import { conciliacaoRouter } from './conciliacao.js';
+import { equipeRouter, conviteRouter, infoConvite } from './equipe.js';
 
 export const api = express.Router();
 
@@ -27,7 +28,11 @@ api.get('/saude', async (req, res) => {
   const ok = banco === 'ok' && authConfigurado;
   res.status(ok ? 200 : 503).json({ ok, config, banco });
 });
+// Pública: a tela de login mostra de qual empresa é o convite antes de a pessoa entrar.
+api.get('/convites/:token', infoConvite);
+
 api.use(autenticar);
+api.use('/convites', conviteRouter);
 
 // ---------- Empresas (cada usuário só vê as empresas das quais é membro) ----------
 
@@ -62,7 +67,8 @@ async function exigirMembro(eid, userId) {
 
 api.put('/empresas/:id', async (req, res) => {
   const id = idParam(req.params.id);
-  await exigirMembro(id, req.userId);
+  const m = await exigirMembro(id, req.userId);
+  check(m.papel === 'dono', 'Só o dono pode alterar os dados da empresa.', 403);
   const nome = optText(req.body.nome);
   check(nome, 'Informe o nome da empresa.');
   res.json(await get('UPDATE empresas SET nome = :nome, documento = :doc WHERE id = :id RETURNING *', { nome, doc: optText(req.body.documento), id }));
@@ -85,7 +91,7 @@ api.use(
   '/empresas/:eid',
   async (req, res, next) => {
     req.eid = idParam(req.params.eid);
-    await exigirMembro(req.eid, req.userId);
+    req.papel = (await exigirMembro(req.eid, req.userId)).papel;
     next();
   },
   e,
@@ -404,6 +410,7 @@ e.get('/resumo', async (req, res) => {
 
 e.use(fluxoRouter);
 e.use(conciliacaoRouter);
+e.use(equipeRouter);
 
 // ---------- Erros ----------
 

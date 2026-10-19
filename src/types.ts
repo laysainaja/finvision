@@ -1,10 +1,39 @@
 export type TipoLancamento = 'pagar' | 'receber';
 export type Status = 'aberto' | 'vencido' | 'pago';
 
+export type Papel = 'dono' | 'membro';
+
 export interface Empresa {
   id: number;
   nome: string;
   documento: string | null;
+  papel: Papel;
+}
+
+export interface Membro {
+  user_id: string;
+  email: string;
+  papel: Papel;
+  criado_em: string;
+  voce: boolean;
+}
+
+export interface Convite {
+  id: number;
+  email: string;
+  papel: Papel;
+  token: string;
+  criado_em: string;
+  expira_em: string;
+  expirado: boolean;
+}
+
+export interface InfoConvite {
+  empresa_nome: string;
+  email: string;
+  papel: Papel;
+  expirado: boolean;
+  aceito: boolean;
 }
 
 export interface ContaBancaria {

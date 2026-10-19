@@ -4,6 +4,7 @@ import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR, hoje } from '../lib/format';
 import type { Categoria, ContaBancaria, Empresa } from '../types';
 import { Field, Icon, Modal, MoneyInput, useAcao } from '../components/ui';
+import { Equipe } from './Equipe';
 
 export function EmpresaModal({ empresa, onClose }: { empresa?: Empresa; onClose: () => void }) {
   const { recarregar, setEmpresaId } = useEmpresa();
@@ -160,7 +161,7 @@ export function Cadastros() {
       <div className="page-header">
         <div>
           <h1>Cadastros</h1>
-          <p>Empresa, contas bancárias e plano de categorias.</p>
+          <p>Empresa, equipe, contas bancárias e plano de categorias.</p>
         </div>
       </div>
 
@@ -170,8 +171,10 @@ export function Cadastros() {
           <h2>{empresa?.nome}</h2>
           <div className="muted">{empresa?.documento || 'Sem documento cadastrado'}</div>
         </div>
-        <button className="btn" onClick={() => setEditarEmpresa(true)}><Icon name="editar" /> Editar</button>
+        {empresa?.papel === 'dono' && <button className="btn" onClick={() => setEditarEmpresa(true)}><Icon name="editar" /> Editar</button>}
       </div>
+
+      <Equipe />
 
       <div className="card">
         <div className="card-header">

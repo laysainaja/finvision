@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { EmpresaProvider, useEmpresa } from './lib/empresa';
 import { AuthProvider, supabase, useAuth } from './lib/auth';
 import { Login } from './pages/Login';
-import { Icon, ToastProvider } from './components/ui';
+import { Icon, ToastProvider, useToast } from './components/ui';
+import { api } from './lib/api';
+import { conviteSalvo, limparConvite } from './lib/convite';
 import { EmpresaModal } from './pages/Cadastros';
 import { Painel } from './pages/Painel';
 import { Lancamentos } from './pages/Lancamentos';
@@ -110,11 +112,42 @@ function Layout() {
   );
 }
 
+// Evita aceitar o mesmo convite duas vezes (o React em modo estrito executa efeitos em dobro).
+let conviteEmAndamento: string | null = null;
+
+/** Se a pessoa chegou por um link de convite, aceita assim que estiver logada e abre a empresa. */
+function ProcessarConvite() {
+  const { setEmpresaId, recarregar } = useEmpresa();
+  const toast = useToast();
+  useEffect(() => {
+    const token = conviteSalvo();
+    if (!token || conviteEmAndamento === token) return;
+    conviteEmAndamento = token;
+    api
+      .post<{ empresa_id: number; empresa_nome: string; ja_era_membro: boolean }>(`/convites/${token}/aceitar`)
+      .then((r) => {
+        limparConvite();
+        toast(r.ja_era_membro ? `Você já faz parte de ${r.empresa_nome}.` : `Bem-vindo(a)! Agora você faz parte de ${r.empresa_nome}.`);
+        setEmpresaId(r.empresa_id);
+        recarregar();
+      })
+      .catch((e: Error) => {
+        // E-mail diferente: mantém o convite para a pessoa sair e entrar com a conta certa.
+        if (!/é para .*@/.test(e.message)) limparConvite();
+        conviteEmAndamento = null;
+        toast(e.message, true);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 function AppLogado() {
   const { session } = useAuth();
   // key: ao trocar de usuário, todo o estado (empresas, filtros) recomeça do zero.
   return (
     <EmpresaProvider key={session?.user.id}>
+      <ProcessarConvite />
       <Layout />
     </EmpresaProvider>
   );

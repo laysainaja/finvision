@@ -1,5 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { configurado, supabase, useAuth } from '../lib/auth';
+import { api } from '../lib/api';
+import { conviteSalvo, limparConvite } from '../lib/convite';
+import type { InfoConvite } from '../types';
 import { Field, Icon } from '../components/ui';
 
 type Modo = 'entrar' | 'cadastrar' | 'esqueci';
@@ -14,10 +17,32 @@ function traduzir(msg: string) {
   return msg;
 }
 
+/** Aviso de convite pendente: mostra a empresa e já preenche o e-mail convidado. */
+function useConvitePendente(setEmail: (e: string) => void) {
+  const [info, setInfo] = useState<InfoConvite | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(() => {
+    const token = conviteSalvo();
+    if (!token) return;
+    api
+      .get<InfoConvite>(`/convites/${token}`)
+      .then((i) => {
+        setInfo(i);
+        if (!i.expirado && !i.aceito) setEmail(i.email);
+      })
+      .catch((e: Error) => {
+        setErro(e.message);
+        limparConvite();
+      });
+  }, [setEmail]);
+  return { info, erro };
+}
+
 export function Login() {
   const { recuperandoSenha, concluirRecuperacao } = useAuth();
   const [modo, setModo] = useState<Modo>('entrar');
   const [email, setEmail] = useState('');
+  const convite = useConvitePendente(setEmail);
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -70,6 +95,22 @@ export function Login() {
             Supabase não configurado: defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env (local) ou nas variáveis da Vercel.
           </div>
         )}
+        {convite.info && !recuperandoSenha && (
+          convite.info.expirado || convite.info.aceito ? (
+            <div className="erro-box">
+              {convite.info.aceito ? 'Este convite já foi usado.' : 'Este convite expirou.'} Peça um novo link ao dono de {convite.info.empresa_nome}.
+            </div>
+          ) : (
+            <div className="convite-box">
+              <b>Você foi convidado(a) para {convite.info.empresa_nome}</b>
+              <span>
+                Entre ou crie sua conta com <b>{convite.info.email}</b> para aceitar
+                {convite.info.papel === 'dono' ? ' como dono(a).' : '.'}
+              </span>
+            </div>
+          )
+        )}
+        {convite.erro && <div className="erro-box">{convite.erro}</div>}
         {erro && <div className="erro-box">{erro}</div>}
         {aviso && <div className="aviso-box">{aviso}</div>}
 

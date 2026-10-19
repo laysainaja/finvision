@@ -77,6 +77,21 @@ create table if not exists extrato_itens (
 );
 create index if not exists ix_extrato_conta_data on extrato_itens (conta_bancaria_id, data);
 
+-- Convites para entrar numa empresa. O link carrega o token; só aceita quem estiver logado com o e-mail convidado.
+create table if not exists convites (
+  id bigint generated always as identity primary key,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  email text not null,
+  papel text not null default 'membro' check (papel in ('dono', 'membro')),
+  token uuid not null unique default gen_random_uuid(),
+  criado_por uuid references auth.users(id) on delete set null,
+  criado_em timestamptz not null default now(),
+  expira_em timestamptz not null default now() + interval '14 days',
+  aceito_em timestamptz,
+  aceito_por uuid references auth.users(id) on delete set null
+);
+create index if not exists ix_convites_empresa on convites (empresa_id);
+
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
 -- Todo acesso passa pelo nosso servidor, que verifica o login e a empresa antes de cada consulta.
@@ -86,3 +101,4 @@ alter table contas_bancarias enable row level security;
 alter table categorias enable row level security;
 alter table lancamentos enable row level security;
 alter table extrato_itens enable row level security;
+alter table convites enable row level security;
