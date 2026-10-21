@@ -3,11 +3,73 @@ export type Status = 'aberto' | 'vencido' | 'pago';
 
 export type Papel = 'dono' | 'membro';
 
+export type Segmento = 'servico' | 'produto';
+export const NOME_SEGMENTO: Record<Segmento, string> = { servico: 'Serviço', produto: 'Produto' };
+
 export interface Empresa {
   id: number;
   nome: string;
   documento: string | null;
   papel: Papel;
+  segmento: Segmento;
+  escritorio_id: number | null;
+  escritorio_nome: string | null;
+  /** true quando o acesso vem do escritório (gestão), não de um convite direto. */
+  via_escritorio: boolean;
+}
+
+export interface Escritorio {
+  id: number;
+  nome: string;
+  papel: 'admin' | 'colaborador';
+}
+
+export interface EmpresaGestao {
+  id: number;
+  nome: string;
+  documento: string | null;
+  segmento: Segmento;
+  saldo: number;
+  receber_vencido: number;
+  pagar_vencido: number;
+  pagar_hoje: number;
+  pendentes_conciliacao: number;
+  usuarios: number;
+}
+
+export type SituacaoExtrato = 'recebido' | 'pago' | 'aberto' | 'vencido';
+
+export interface ItemExtrato {
+  id: number;
+  tipo: TipoLancamento;
+  descricao: string;
+  contato: string | null;
+  documento: string | null;
+  valor: number;
+  valor_pago: number | null;
+  vencimento: string;
+  data_pagamento: string | null;
+  data: string;
+  parcela: number | null;
+  total_parcelas: number | null;
+  categoria_id: number | null;
+  categoria_nome: string | null;
+  conta_bancaria_id: number | null;
+  conta_nome: string | null;
+  extrato_id: number | null;
+  situacao: SituacaoExtrato;
+  valor_extrato: number;
+  saldo: number | null;
+}
+
+export interface Movimentacoes {
+  de: string;
+  ate: string;
+  hoje: string;
+  saldo_inicial: number;
+  saldo_final: number;
+  resumo: { receitas_aberto: number; receitas_realizadas: number; despesas_aberto: number; despesas_realizadas: number; total_periodo: number };
+  itens: ItemExtrato[];
 }
 
 export interface Membro {

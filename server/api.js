@@ -7,6 +7,8 @@ import { fluxoRouter } from './fluxo.js';
 import { conciliacaoRouter } from './conciliacao.js';
 import { equipeRouter, conviteRouter, infoConvite } from './equipe.js';
 import { provedorEmail } from './email.js';
+import { gestaoRouter } from './gestao.js';
+import { extratoRouter } from './extrato.js';
 
 export const api = express.Router();
 
@@ -35,33 +37,49 @@ api.get('/convites/:token', infoConvite);
 
 api.use(autenticar);
 api.use('/convites', conviteRouter);
+api.use('/gestao', gestaoRouter);
 
-// ---------- Empresas (cada usuário só vê as empresas das quais é membro) ----------
+// ---------- Empresas ----------
+// Acesso a uma empresa: ser membro dela (cliente/equipe) OU ser membro do escritório que a gerencia.
+// Quem entra pelo escritório tem poderes de dono.
+
+export const ACESSO_SQL = `
+  SELECT e.*,
+    CASE WHEN em.user_id IS NOT NULL THEN 'dono' ELSE m.papel END AS papel,
+    (em.user_id IS NOT NULL) AS via_escritorio,
+    es.nome AS escritorio_nome
+  FROM empresas e
+  LEFT JOIN membros m ON m.empresa_id = e.id AND m.user_id = :uid
+  LEFT JOIN escritorio_membros em ON em.escritorio_id = e.escritorio_id AND em.user_id = :uid
+  LEFT JOIN escritorios es ON es.id = e.escritorio_id
+  WHERE (m.user_id IS NOT NULL OR em.user_id IS NOT NULL)`;
 
 api.get('/empresas', async (req, res) => {
-  res.json(
-    await all(
-      `SELECT e.*, m.papel FROM empresas e JOIN membros m ON m.empresa_id = e.id
-       WHERE m.user_id = :uid ORDER BY e.nome`,
-      { uid: req.userId },
-    ),
-  );
+  res.json(await all(`${ACESSO_SQL} ORDER BY e.nome`, { uid: req.userId }));
 });
+
+export const SEGMENTOS = ['servico', 'produto'];
+
+export async function criarEmpresa({ nome, documento, segmento = 'servico', escritorioId = null, donoId = null }) {
+  check(SEGMENTOS.includes(segmento), 'Segmento inválido.');
+  const e = await get('INSERT INTO empresas (nome, documento, segmento, escritorio_id) VALUES (:nome, :doc, :seg, :esc) RETURNING *', {
+    nome, doc: documento, seg: segmento, esc: escritorioId,
+  });
+  if (donoId) await all("INSERT INTO membros (empresa_id, user_id, papel) VALUES (:eid, :uid, 'dono')", { eid: e.id, uid: donoId });
+  await criarCategoriasPadrao(e.id, segmento);
+  return e;
+}
 
 api.post('/empresas', async (req, res) => {
   const nome = optText(req.body.nome);
   check(nome, 'Informe o nome da empresa.');
-  const empresa = await transaction(async () => {
-    const e = await get('INSERT INTO empresas (nome, documento) VALUES (:nome, :doc) RETURNING *', { nome, doc: optText(req.body.documento) });
-    await all("INSERT INTO membros (empresa_id, user_id, papel) VALUES (:eid, :uid, 'dono')", { eid: e.id, uid: req.userId });
-    await criarCategoriasPadrao(e.id);
-    return e;
-  });
+  const segmento = req.body.segmento ?? 'servico';
+  const empresa = await transaction(() => criarEmpresa({ nome, documento: optText(req.body.documento), segmento, donoId: req.userId }));
   res.status(201).json(empresa);
 });
 
-async function exigirMembro(eid, userId) {
-  const m = await get('SELECT papel FROM membros WHERE empresa_id = :eid AND user_id = :uid', { eid, uid: userId });
+export async function exigirMembro(eid, userId) {
+  const m = await get(`${ACESSO_SQL} AND e.id = :eid`, { eid, uid: userId });
   // 404 (e não 403) para não revelar que a empresa existe.
   check(m, 'Empresa não encontrada.', 404);
   return m;
@@ -73,12 +91,30 @@ api.put('/empresas/:id', async (req, res) => {
   check(m.papel === 'dono', 'Só o dono pode alterar os dados da empresa.', 403);
   const nome = optText(req.body.nome);
   check(nome, 'Informe o nome da empresa.');
-  res.json(await get('UPDATE empresas SET nome = :nome, documento = :doc WHERE id = :id RETURNING *', { nome, doc: optText(req.body.documento), id }));
+  let segmento = m.segmento;
+  if (req.body.segmento !== undefined && req.body.segmento !== m.segmento) {
+    check(SEGMENTOS.includes(req.body.segmento), 'Segmento inválido.');
+    // Empresa gerenciada por escritório: o segmento é definido pela gestão, não pelo cliente.
+    check(!m.escritorio_id || m.via_escritorio, 'O segmento desta empresa é definido pelo escritório que a gerencia.', 403);
+    segmento = req.body.segmento;
+  }
+  await all('UPDATE empresas SET nome = :nome, documento = :doc, segmento = :seg WHERE id = :id', { nome, doc: optText(req.body.documento), seg: segmento, id });
+  res.json(await exigirMembro(id, req.userId));
 });
 
-export async function criarCategoriasPadrao(empresaId) {
-  const receitas = ['Vendas de produtos', 'Prestação de serviços', 'Receitas financeiras', 'Outras receitas'];
-  const despesas = ['Fornecedores', 'Salários e encargos', 'Aluguel', 'Impostos', 'Tarifas bancárias', 'Marketing', 'Software e serviços', 'Outras despesas'];
+const CATEGORIAS_PADRAO = {
+  servico: {
+    receitas: ['Prestação de serviços', 'Mensalidades e contratos', 'Honorários', 'Receitas financeiras', 'Outras receitas'],
+    despesas: ['Salários e encargos', 'Pró-labore', 'Prestadores de serviço', 'Aluguel', 'Impostos', 'Tarifas bancárias', 'Marketing', 'Software e serviços', 'Outras despesas'],
+  },
+  produto: {
+    receitas: ['Venda de mercadorias', 'Fretes recebidos', 'Receitas financeiras', 'Outras receitas'],
+    despesas: ['Compra de mercadorias', 'Fretes e entregas', 'Embalagens', 'Salários e encargos', 'Aluguel', 'Impostos', 'Tarifas bancárias', 'Marketing', 'Outras despesas'],
+  },
+};
+
+export async function criarCategoriasPadrao(empresaId, segmento = 'servico') {
+  const { receitas, despesas } = CATEGORIAS_PADRAO[segmento] ?? CATEGORIAS_PADRAO.servico;
   await all(
     `INSERT INTO categorias (empresa_id, nome, tipo)
      SELECT :eid::bigint, n, 'receita' FROM unnest(:receitas::text[]) n
@@ -93,7 +129,9 @@ api.use(
   '/empresas/:eid',
   async (req, res, next) => {
     req.eid = idParam(req.params.eid);
-    req.papel = (await exigirMembro(req.eid, req.userId)).papel;
+    const acesso = await exigirMembro(req.eid, req.userId);
+    req.papel = acesso.papel;
+    req.segmento = acesso.segmento;
     next();
   },
   e,
@@ -413,6 +451,7 @@ e.get('/resumo', async (req, res) => {
 e.use(fluxoRouter);
 e.use(conciliacaoRouter);
 e.use(equipeRouter);
+e.use(extratoRouter);
 
 // ---------- Erros ----------
 

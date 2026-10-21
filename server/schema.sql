@@ -92,6 +92,30 @@ create table if not exists convites (
 );
 create index if not exists ix_convites_empresa on convites (empresa_id);
 
+-- Escritório (BPO): quem é membro dele acessa todas as empresas vinculadas, define o segmento de cada uma e convida os clientes.
+create table if not exists escritorios (
+  id bigint generated always as identity primary key,
+  nome text not null,
+  criado_em timestamptz not null default now()
+);
+
+create table if not exists escritorio_membros (
+  escritorio_id bigint not null references escritorios(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  papel text not null default 'admin' check (papel in ('admin', 'colaborador')),
+  criado_em timestamptz not null default now(),
+  primary key (escritorio_id, user_id)
+);
+create index if not exists ix_escritorio_membros_user on escritorio_membros (user_id);
+
+-- Segmento define o modelo de telas da empresa (serviço ou produto). Empresas antigas viram "serviço".
+alter table empresas add column if not exists escritorio_id bigint references escritorios(id) on delete set null;
+alter table empresas add column if not exists segmento text not null default 'servico';
+do $$ begin
+  alter table empresas add constraint empresas_segmento_check check (segmento in ('servico', 'produto'));
+exception when duplicate_object then null; end $$;
+create index if not exists ix_empresas_escritorio on empresas (escritorio_id);
+
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
 -- Todo acesso passa pelo nosso servidor, que verifica o login e a empresa antes de cada consulta.
@@ -102,3 +126,5 @@ alter table categorias enable row level security;
 alter table lancamentos enable row level security;
 alter table extrato_itens enable row level security;
 alter table convites enable row level security;
+alter table escritorios enable row level security;
+alter table escritorio_membros enable row level security;
