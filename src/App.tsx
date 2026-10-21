@@ -15,6 +15,8 @@ import { Gestao } from './pages/Gestao';
 import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
 import { Analise, DRE, Margem, RELATORIOS, RelatoriosInicio, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
+import { Contatos } from './pages/Contatos';
+import { Forecast } from './pages/Forecast';
 
 type ItemMenu = { id: string; label: string; icon: Parameters<typeof Icon>[0]['name'] };
 type Secao = { secao: string | null; icon?: ItemMenu['icon']; itens: ItemMenu[] };
@@ -42,10 +44,17 @@ function montarMenu(segmento: 'servico' | 'produto'): Secao[] {
         ...relatoriosDoSegmento(segmento).map((r) => ({ id: `relatorios/${r.id}`, label: r.nome, icon: 'extrato' as const })),
       ],
     },
-    { secao: 'Configurações', icon: 'config', itens: [{ id: 'cadastros', label: 'Cadastros', icon: 'config' }] },
+    {
+      secao: 'Configurações',
+      icon: 'config',
+      itens: [
+        { id: 'contatos', label: 'Clientes e fornecedores', icon: 'config' },
+        { id: 'cadastros', label: 'Empresa, contas e categorias', icon: 'config' },
+      ],
+    },
   ];
 }
-const ROTAS = ['painel', 'extrato', 'receber', 'pagar', 'fluxo', 'conciliacao', 'cadastros', 'gestao', 'relatorios', ...RELATORIOS.map((r) => `relatorios/${r.id}`)];
+const ROTAS = ['painel', 'extrato', 'receber', 'pagar', 'fluxo', 'conciliacao', 'cadastros', 'contatos', 'gestao', 'relatorios', ...RELATORIOS.map((r) => `relatorios/${r.id}`)];
 type Rota = string;
 
 /** Quais seções do menu estão recolhidas (lembrado no navegador). */
@@ -201,6 +210,8 @@ function Layout() {
           {rotaValida === 'fluxo' && <FluxoCaixa />}
           {rotaValida === 'conciliacao' && <Conciliacao />}
           {rotaValida === 'cadastros' && <Cadastros />}
+          {rotaValida === 'contatos' && <Contatos />}
+          {rotaValida === 'relatorios/forecast' && <Forecast />}
           {rotaValida === 'gestao' && <Gestao />}
           {rotaValida === 'relatorios' && <RelatoriosInicio />}
           {rotaValida === 'relatorios/dre' && <DRE />}

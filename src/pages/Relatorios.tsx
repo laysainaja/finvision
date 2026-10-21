@@ -10,6 +10,7 @@ import { Icon } from '../components/ui';
 
 type Segmento = 'servico' | 'produto';
 export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: string; segmento?: Segmento }[] = [
+  { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
   { id: 'margem', nome: 'Margem bruta e CMV', descricao: 'Quanto sobra das vendas depois do custo das mercadorias, mês a mês.', grupo: 'Resultado', segmento: 'produto' },
   { id: 'recebimentos', nome: 'Análise de recebimentos', descricao: 'Recebimentos por categoria (ou por cliente) em cada mês, com participação no total.', grupo: 'Análise financeira' },

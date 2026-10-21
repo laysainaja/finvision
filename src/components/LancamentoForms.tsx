@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { api } from '../lib/api';
+import { api, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR, hoje, addMeses } from '../lib/format';
-import type { Lancamento, TipoLancamento } from '../types';
+import type { Contato, Lancamento, TipoLancamento, TipoReceita } from '../types';
 import { Field, Modal, MoneyInput, useToast } from './ui';
 
 export const NOME_TIPO = {
@@ -46,7 +46,11 @@ export function LancamentoForm({
   const toast = useToast();
   const nomes = NOME_TIPO[tipo];
   const editando = !!lancamento;
+  // Sugestões do cadastro de clientes/fornecedores; um nome novo é cadastrado sozinho ao salvar.
+  const cadastro = useApi<Contato[]>(`${base}/contatos?tipo=${tipo === 'pagar' ? 'fornecedor' : 'cliente'}`);
+  const sugestoes = [...new Set([...(cadastro.data?.map((c) => c.nome) ?? []), ...contatos])].sort((a, b) => a.localeCompare(b));
   const [f, setF] = useState({
+    tipo_receita: (lancamento?.tipo_receita ?? 'auto') as TipoReceita | 'auto',
     descricao: lancamento?.descricao ?? '',
     contato: lancamento?.contato ?? '',
     categoria_id: lancamento?.categoria_id ?? '',
@@ -69,6 +73,7 @@ export function LancamentoForm({
       tipo,
       descricao: f.descricao,
       contato: f.contato,
+      tipo_receita: tipo === 'receber' ? f.tipo_receita : undefined,
       categoria_id: f.categoria_id || null,
       conta_bancaria_id: f.conta_bancaria_id || null,
       valor: f.valor,
@@ -116,13 +121,23 @@ export function LancamentoForm({
           <input className="input" autoFocus value={f.descricao} onChange={(e) => set('descricao', e.target.value)} placeholder="Ex.: Aluguel de outubro" />
         </Field>
         <Field label={nomes.contato}>
-          <input className="input" list="contatos" value={f.contato} onChange={(e) => set('contato', e.target.value)} />
+          <input className="input" list="contatos" value={f.contato} onChange={(e) => set('contato', e.target.value)} placeholder="Escolha ou digite um novo" />
           <datalist id="contatos">
-            {contatos.map((c) => (
+            {sugestoes.map((c) => (
               <option key={c} value={c} />
             ))}
           </datalist>
         </Field>
+        {tipo === 'receber' && (
+          <Field label="Tipo de receita">
+            <select className="select input" value={f.tipo_receita} onChange={(e) => set('tipo_receita', e.target.value as TipoReceita | 'auto')}>
+              {!editando && <option value="auto">Automático (o sistema sugere)</option>}
+              <option value="nova">Nova venda (cliente entrando na recorrência)</option>
+              <option value="recorrente">Recorrente (mensalidade/contrato)</option>
+              <option value="avulsa">Avulsa (venda única)</option>
+            </select>
+          </Field>
+        )}
         <Field label="Categoria">
           <select className="select input" value={f.categoria_id} onChange={(e) => set('categoria_id', e.target.value === '' ? '' : Number(e.target.value))}>
             <option value="">Sem categoria</option>

@@ -128,10 +128,60 @@ update categorias set dre = case
     when tipo = 'receita' and nome ilike 'outra%' then 'outra_receita'
     when tipo = 'receita' then 'receita_bruta'
     when nome ilike any (array['imposto%', '%simples%', '%das %', '%devolu%']) then 'deducao'
-    when nome ilike any (array['%compra de mercad%', '%fornecedor%', '%frete%', '%embalag%', '%prestadores de servi%', '%mercadoria%']) then 'custo'
-    when nome ilike any (array['%tarifa%', '%juros%', '%financeir%', '%iof%']) then 'despesa_financeira'
+    when nome ilike any (array['%compra de mercad%', '%fornecedor%', '%frete%', '%embalag%', '%prestadores de servi%', '%mercadoria%', '%comiss%', '%materiais aplicados%']) then 'custo'
+    when nome ilike any (array['%tarifa%', '%taxa%banc%', '%bancári%', '%juros%', '%financeir%', '%iof%']) then 'despesa_financeira'
     else 'despesa_operacional' end
   where dre is null;
+
+-- Clientes e fornecedores. "chave" é o nome normalizado (minúsculas, sem acento, espaços simples):
+-- é por ela que "Café Aroma" e "cafe  aroma" viram o mesmo cadastro.
+create table if not exists contatos (
+  id bigint generated always as identity primary key,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  nome text not null,
+  chave text not null,
+  tipo text not null default 'cliente' check (tipo in ('cliente', 'fornecedor', 'ambos')),
+  documento text,
+  email text,
+  telefone text,
+  observacao text,
+  criado_em timestamptz not null default now(),
+  unique (empresa_id, chave)
+);
+alter table lancamentos add column if not exists contato_id bigint references contatos(id) on delete set null;
+create index if not exists ix_lanc_contato on lancamentos (contato_id);
+
+-- Tipo de receita (só contas a receber): recorrente, nova venda (cliente entrando na base recorrente) ou avulsa.
+alter table lancamentos add column if not exists tipo_receita text;
+do $$ begin
+  alter table lancamentos add constraint lancamentos_tipo_receita_check check (tipo_receita in ('recorrente', 'nova', 'avulsa'));
+exception when duplicate_object then null; end $$;
+
+-- Grupo da despesa no Forecast.
+alter table categorias add column if not exists grupo_forecast text;
+do $$ begin
+  alter table categorias add constraint categorias_grupo_forecast_check check (grupo_forecast in ('investimento', 'imposto_anuncio', 'variavel', 'fixo'));
+exception when duplicate_object then null; end $$;
+update categorias set grupo_forecast = case
+    when nome ilike any (array['%imposto%anúnc%', '%imposto%anunc%', '%imposto%ads%']) then 'imposto_anuncio'
+    when nome ilike any (array['%anúnc%', '%anunc%', '%tráfego%', '%trafego%', '%ads%', '%mídia paga%', '%midia paga%']) then 'investimento'
+    when dre in ('deducao', 'custo', 'despesa_financeira') or nome ilike any (array['%comiss%', '%taxa%']) then 'variavel'
+    else 'fixo' end
+  where grupo_forecast is null and tipo = 'despesa';
+
+-- Liga os lançamentos antigos ao cadastro de contatos, criando os contatos a partir do texto digitado.
+insert into contatos (empresa_id, nome, chave, tipo)
+  select distinct on (empresa_id, k) empresa_id, trim(contato), k, case when tipo = 'receber' then 'cliente' else 'fornecedor' end
+  from (select l.*, regexp_replace(translate(lower(trim(l.contato)), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn'), '\s+', ' ', 'g') as k
+        from lancamentos l where l.contato_id is null and nullif(trim(l.contato), '') is not null) x
+  order by empresa_id, k, criado_em
+  on conflict (empresa_id, chave) do nothing;
+update lancamentos l set contato_id = c.id from contatos c
+  where l.contato_id is null and nullif(trim(l.contato), '') is not null and c.empresa_id = l.empresa_id
+    and c.chave = regexp_replace(translate(lower(trim(l.contato)), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn'), '\s+', ' ', 'g');
+update contatos c set tipo = 'ambos' where tipo <> 'ambos'
+  and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'receber')
+  and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'pagar');
 
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
@@ -145,3 +195,4 @@ alter table extrato_itens enable row level security;
 alter table convites enable row level security;
 alter table escritorios enable row level security;
 alter table escritorio_membros enable row level security;
+alter table contatos enable row level security;

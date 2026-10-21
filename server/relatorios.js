@@ -33,7 +33,7 @@ function movimentos({ eid, de, ate, regime, contaId }, chave) {
   const valor = regime === 'caixa' ? 'l.valor_pago' : 'COALESCE(l.valor_pago, l.valor)';
   return all(
     `SELECT l.tipo, to_char(${data}, 'YYYY-MM') AS mes, ${chave} AS chave, SUM(${valor})::bigint AS valor
-     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
      WHERE l.empresa_id = :eid AND ${data} BETWEEN :de AND :ate ${contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
      GROUP BY 1, 2, 3`,
     { eid, de, ate, ...(contaId && { conta: contaId }) },
@@ -105,7 +105,8 @@ relatoriosRouter.get('/relatorios/analise', async (req, res) => {
   const p = lerPeriodo(req.query);
   const tipo = req.query.tipo === 'pagar' ? 'pagar' : 'receber';
   const agrupar = ['categoria', 'contato'].includes(req.query.agrupar) ? req.query.agrupar : 'categoria';
-  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')` : `COALESCE(NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
+  // Por cliente/fornecedor: pelo cadastro (o mesmo cliente escrito de jeitos diferentes soma junto).
+  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')` : `COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
   const linhas = (await movimentos({ eid: req.eid, ...p }, chave)).filter((r) => r.tipo === tipo);
 
   const itens = new Map();
@@ -137,8 +138,8 @@ relatoriosRouter.get('/relatorios/vencidos', async (req, res) => {
   const h = hoje();
   const tipo = req.query.tipo === 'pagar' ? 'pagar' : 'receber';
   const abertos = await all(
-    `SELECT l.id, l.descricao, l.contato, l.vencimento, l.valor, l.parcela, l.total_parcelas, c.nome AS categoria_nome
-     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+    `SELECT l.id, l.descricao, COALESCE(ct.nome, l.contato) AS contato, l.vencimento, l.valor, l.parcela, l.total_parcelas, c.nome AS categoria_nome
+     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
      WHERE l.empresa_id = :eid AND l.tipo = :tipo AND l.data_pagamento IS NULL AND l.vencimento < :hoje
      ORDER BY l.vencimento`,
     { eid: req.eid, tipo, hoje: h },

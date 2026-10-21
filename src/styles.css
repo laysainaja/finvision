@@ -169,6 +169,18 @@ h3 { font-size: 14px; }
 .menu-lista button { all: unset; box-sizing: border-box; cursor: pointer; padding: 8px 12px; border-radius: 6px; font-weight: 500; text-align: left; display: flex; gap: 8px; align-items: center; }
 .menu-lista button:hover, .menu-lista button:focus-visible { background: var(--surface-2); }
 @media (max-width: 1100px) { .cartoes-extrato { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cartao-extrato { border-bottom: 1px solid var(--border); } }
+.tag-receita { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; margin-right: 6px; border: 1px solid var(--border); }
+.tag-nova { color: var(--primary); border-color: var(--primary); }
+.tag-recorrente { color: var(--serie-entrada); border-color: var(--serie-entrada); }
+.tag-avulsa { color: var(--text-2); }
+.tabela-forecast .fc-secao td { background: #2f3438; color: #fff; font-weight: 700; font-size: 14px; padding: 9px 12px; border-bottom: 0; }
+.tabela-forecast .fc-secao .col-fixa { background: #2f3438; }
+.tabela-forecast .fc-destaque td { font-weight: 700; border-top: 2px solid var(--text-3); background: var(--surface-2); }
+.tabela-forecast .fc-destaque .col-fixa { background: var(--surface-2); }
+.tabela-forecast .fc-proj { background: var(--primary-soft); }
+.tabela-forecast th.fc-atual { box-shadow: inset 0 -3px 0 var(--primary); }
+.tabela-forecast .fc-total { font-weight: 650; border-left: 1px solid var(--border); }
+.fc-status { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
 .segmentos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .segmento-opcao { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
 .segmento-opcao input { display: none; }

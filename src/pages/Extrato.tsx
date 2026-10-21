@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { addMeses, brl, dataBR, fimMes, hoje, inicioMes } from '../lib/format';
-import type { ItemExtrato, Lancamento, Movimentacoes, SituacaoExtrato, TipoLancamento } from '../types';
+import { NOME_TIPO_RECEITA, type ItemExtrato, type Lancamento, type Movimentacoes, type SituacaoExtrato, type TipoLancamento } from '../types';
 import { Icon, useAcao } from '../components/ui';
 import { BaixaModal, LancamentoForm } from '../components/LancamentoForms';
 
@@ -287,6 +287,7 @@ export function Extrato() {
                         {i.total_parcelas && <span className="muted small"> · {i.parcela}/{i.total_parcelas}</span>}
                       </div>
                       <div className="desc-sub">
+                        {i.tipo_receita && <span className={'tag-receita tag-' + i.tipo_receita}>{NOME_TIPO_RECEITA[i.tipo_receita]}</span>}
                         {[i.categoria_nome ?? 'Sem categoria', i.contato, !conta && i.conta_nome].filter(Boolean).join(' · ')}
                         {i.extrato_id && ' · ✓ conciliado'}
                       </div>

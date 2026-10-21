@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR, hoje } from '../lib/format';
-import { NOME_LINHA_DRE, type Categoria, type ContaBancaria, type Empresa, type LinhaDRE } from '../types';
+import { NOME_GRUPO_FORECAST, NOME_LINHA_DRE, type Categoria, type ContaBancaria, type Empresa, type GrupoForecast, type LinhaDRE } from '../types';
 import { Field, Icon, Modal, MoneyInput, useAcao } from '../components/ui';
 import { Equipe } from './Equipe';
 
@@ -123,6 +123,9 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
   const mudarDre = async (c: Categoria, dre: LinhaDRE) => {
     if (await acao(() => api.put(`${base}/categorias/${c.id}`, { dre }), `"${c.nome}" agora entra em ${NOME_LINHA_DRE[dre]} na DRE.`)) recarregar();
   };
+  const mudarGrupo = async (c: Categoria, grupo_forecast: GrupoForecast) => {
+    if (await acao(() => api.put(`${base}/categorias/${c.id}`, { grupo_forecast }), `"${c.nome}" agora é ${NOME_GRUPO_FORECAST[grupo_forecast].toLowerCase()} no Forecast.`)) recarregar();
+  };
   const renomear = async (c: Categoria) => {
     const nome = prompt('Novo nome da categoria:', c.nome);
     if (nome && nome !== c.nome && (await acao(() => api.put(`${base}/categorias/${c.id}`, { nome })))) recarregar();
@@ -137,7 +140,7 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
       <div className="card-header">
         <div>
           <h2>{tipo === 'receita' ? 'Categorias de receita' : 'Categorias de despesa'}</h2>
-          <div className="muted small">Ao lado, a linha da DRE onde cada uma entra.</div>
+          <div className="muted small">{tipo === 'despesa' ? 'Ao lado: a linha da DRE e o grupo no Forecast (investimento, imposto de anúncio, variável ou fixo).' : 'Ao lado, a linha da DRE onde cada uma entra.'}</div>
         </div>
       </div>
       {lista.map((c) => (
@@ -146,6 +149,11 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
           <select className="select input" style={{ height: 30, maxWidth: 230 }} value={c.dre ?? linhas[0]} onChange={(e) => mudarDre(c, e.target.value as LinhaDRE)} aria-label={`Linha da DRE de ${c.nome}`}>
             {linhas.map((l) => <option key={l} value={l}>{NOME_LINHA_DRE[l]}</option>)}
           </select>
+          {tipo === 'despesa' && (
+            <select className="select input" style={{ height: 30, maxWidth: 190 }} value={c.grupo_forecast ?? 'fixo'} onChange={(e) => mudarGrupo(c, e.target.value as GrupoForecast)} aria-label={`Grupo do Forecast de ${c.nome}`}>
+              {(Object.keys(NOME_GRUPO_FORECAST) as GrupoForecast[]).map((g) => <option key={g} value={g}>{NOME_GRUPO_FORECAST[g]}</option>)}
+            </select>
+          )}
           <span style={{ whiteSpace: 'nowrap' }}>
             <button className="btn btn-ghost btn-sm" onClick={() => renomear(c)} aria-label="Renomear"><Icon name="editar" /></button>
             <button className="btn btn-ghost btn-sm btn-danger" onClick={() => excluir(c)} aria-label="Excluir"><Icon name="lixo" /></button>

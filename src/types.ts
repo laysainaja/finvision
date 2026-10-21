@@ -96,6 +96,8 @@ export interface ItemExtrato {
   tipo: TipoLancamento;
   descricao: string;
   contato: string | null;
+  contato_id: number | null;
+  tipo_receita: TipoReceita | null;
   documento: string | null;
   valor: number;
   valor_pago: number | null;
@@ -166,11 +168,54 @@ export interface ContaBancaria {
   pendentes_conciliacao: number;
 }
 
+export type GrupoForecast = 'investimento' | 'imposto_anuncio' | 'variavel' | 'fixo';
+export const NOME_GRUPO_FORECAST: Record<GrupoForecast, string> = {
+  investimento: 'Investimento em anúncios',
+  imposto_anuncio: 'Imposto de anúncio',
+  variavel: 'Custo variável',
+  fixo: 'Custo fixo',
+};
+
 export interface Categoria {
   id: number;
   nome: string;
   tipo: 'receita' | 'despesa';
   dre: LinhaDRE | null;
+  grupo_forecast: GrupoForecast | null;
+}
+
+export type TipoReceita = 'recorrente' | 'nova' | 'avulsa';
+export const NOME_TIPO_RECEITA: Record<TipoReceita, string> = { recorrente: 'Recorrente', nova: 'Nova venda', avulsa: 'Avulsa' };
+
+export interface Contato {
+  id: number;
+  nome: string;
+  tipo: 'cliente' | 'fornecedor' | 'ambos';
+  documento: string | null;
+  email: string | null;
+  telefone: string | null;
+  observacao: string | null;
+  total_receber: number;
+  total_pagar: number;
+  lancamentos: number;
+  ultimo_movimento: string | null;
+}
+
+export type FormatoForecast = 'moeda' | 'numero' | 'pct' | 'roas';
+export interface LinhaForecast {
+  id: string;
+  nome: string;
+  formato: FormatoForecast;
+  valores: Record<string, number | null>;
+  total: number | null;
+}
+export interface RelatorioForecast {
+  de: string;
+  ate: string;
+  hoje: string;
+  meses: { mes: string; status: 'realizado' | 'atual' | 'projecao' }[];
+  blocos: { id: string; titulo: string; linhas: LinhaForecast[]; destaque?: LinhaForecast }[];
+  sem_tipo: number;
 }
 
 export interface Lancamento {
@@ -178,6 +223,8 @@ export interface Lancamento {
   tipo: TipoLancamento;
   descricao: string;
   contato: string | null;
+  contato_id: number | null;
+  tipo_receita: TipoReceita | null;
   categoria_id: number | null;
   categoria_nome: string | null;
   conta_bancaria_id: number | null;

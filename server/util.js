@@ -21,6 +21,16 @@ export function idParam(v) {
   return n;
 }
 
+/** Nome normalizado para comparar contatos: minúsculas, sem acento, espaços simples.
+ *  Mesmo resultado da expressão SQL usada na migração (translate + regexp_replace). */
+export const chaveNome = (s) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+
 /** Literal de array do Postgres ({"a","b"}), com aspas e barras escapadas — para usar com `:param::tipo[]`. */
 export function pgArray(valores) {
   return '{' + valores.map((v) => '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"').join(',') + '}';

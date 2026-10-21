@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR } from '../lib/format';
-import type { Lancamento, Resumo, TipoLancamento } from '../types';
+import { NOME_TIPO_RECEITA, type Lancamento, type Resumo, type TipoLancamento } from '../types';
 import { Icon, Modal, StatusBadge, useAcao } from '../components/ui';
 import { BaixaModal, LancamentoForm, NOME_TIPO } from '../components/LancamentoForms';
 
@@ -185,6 +185,7 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
                       {l.total_parcelas && <span className="muted small"> · {l.parcela}/{l.total_parcelas}</span>}
                     </div>
                     <div className="desc-sub">
+                      {l.tipo_receita && <span className={'tag-receita tag-' + l.tipo_receita}>{NOME_TIPO_RECEITA[l.tipo_receita]}</span>}
                       {[l.contato, l.documento && `Doc. ${l.documento}`].filter(Boolean).join(' · ')}
                     </div>
                   </td>

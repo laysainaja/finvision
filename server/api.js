@@ -10,6 +10,8 @@ import { provedorEmail } from './email.js';
 import { gestaoRouter } from './gestao.js';
 import { extratoRouter } from './extrato.js';
 import { relatoriosRouter } from './relatorios.js';
+import { contatosRouter, resolverContato } from './contatos.js';
+import { forecastRouter } from './forecast.js';
 
 export const api = express.Router();
 
@@ -103,34 +105,55 @@ api.put('/empresas/:id', async (req, res) => {
   res.json(await exigirMembro(id, req.userId));
 });
 
-// [nome, linha da DRE]
+// Receitas: [nome, linha da DRE]. Despesas: [nome, linha da DRE, grupo do Forecast].
+// As despesas de serviço seguem a planilha de Forecast usada pelo escritório.
 const CATEGORIAS_PADRAO = {
   servico: {
-    receitas: [['Prestação de serviços', 'receita_bruta'], ['Mensalidades e contratos', 'receita_bruta'], ['Honorários', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
+    receitas: [['Prestação de serviços', 'receita_bruta'], ['Mensalidades e contratos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
     despesas: [
-      ['Impostos sobre faturamento', 'deducao'], ['Prestadores de serviço', 'custo'], ['Salários e encargos', 'despesa_operacional'], ['Pró-labore', 'despesa_operacional'],
-      ['Aluguel', 'despesa_operacional'], ['Marketing', 'despesa_operacional'], ['Software e serviços', 'despesa_operacional'], ['Tarifas bancárias', 'despesa_financeira'], ['Outras despesas', 'outra_despesa'],
+      ['Investimento em anúncios', 'despesa_operacional', 'investimento'], ['Imposto sobre anúncios', 'despesa_operacional', 'imposto_anuncio'],
+      ['Imposto', 'deducao', 'variavel'], ['Taxas bancárias', 'despesa_financeira', 'variavel'], ['Comissão', 'custo', 'variavel'],
+      ['Pró-labore', 'despesa_operacional', 'fixo'], ['Remuneração de autônomo (colaborador)', 'custo', 'fixo'], ['Salários', 'despesa_operacional', 'fixo'],
+      ['Cursos e treinamentos', 'despesa_operacional', 'fixo'], ['Móveis, utensílios e instalações administrativas', 'despesa_operacional', 'fixo'],
+      ['Plataformas', 'despesa_operacional', 'fixo'], ['Software e licença de uso', 'despesa_operacional', 'fixo'],
+      ['Materiais aplicados na prestação de serviço', 'custo', 'fixo'], ['Honorários contábeis', 'despesa_operacional', 'fixo'],
+      ['Energia elétrica', 'despesa_operacional', 'fixo'], ['Lanches e refeições', 'despesa_operacional', 'fixo'], ['Simples atrasado', 'deducao', 'fixo'],
+      ['PLR - Participação nos lucros e resultados', 'despesa_operacional', 'fixo'], ['Despesas a identificar', 'outra_despesa', 'fixo'],
+      ['Vales', 'despesa_operacional', 'fixo'], ['Exames médicos', 'despesa_operacional', 'fixo'], ['Telefonia e internet', 'despesa_operacional', 'fixo'],
+      ['Água e saneamento', 'despesa_operacional', 'fixo'], ['FGTS', 'despesa_operacional', 'fixo'], ['INSS', 'despesa_operacional', 'fixo'],
+      ['Condomínio', 'despesa_operacional', 'fixo'], ['Materiais de limpeza e de higiene', 'despesa_operacional', 'fixo'],
+      ['Materiais de escritório', 'despesa_operacional', 'fixo'], ['Gratificações', 'despesa_operacional', 'fixo'], ['Honorários advocatícios', 'despesa_operacional', 'fixo'],
     ],
   },
   produto: {
     receitas: [['Venda de mercadorias', 'receita_bruta'], ['Fretes recebidos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
     despesas: [
-      ['Impostos sobre vendas', 'deducao'], ['Devoluções de vendas', 'deducao'], ['Compra de mercadorias', 'custo'], ['Fretes e entregas', 'custo'], ['Embalagens', 'custo'],
-      ['Salários e encargos', 'despesa_operacional'], ['Aluguel', 'despesa_operacional'], ['Marketing', 'despesa_operacional'], ['Tarifas bancárias', 'despesa_financeira'], ['Outras despesas', 'outra_despesa'],
+      ['Investimento em anúncios', 'despesa_operacional', 'investimento'], ['Imposto sobre anúncios', 'despesa_operacional', 'imposto_anuncio'],
+      ['Impostos sobre vendas', 'deducao', 'variavel'], ['Devoluções de vendas', 'deducao', 'variavel'], ['Compra de mercadorias', 'custo', 'variavel'],
+      ['Fretes e entregas', 'custo', 'variavel'], ['Embalagens', 'custo', 'variavel'], ['Comissão', 'custo', 'variavel'], ['Taxas bancárias', 'despesa_financeira', 'variavel'],
+      ['Salários e encargos', 'despesa_operacional', 'fixo'], ['Pró-labore', 'despesa_operacional', 'fixo'], ['Aluguel', 'despesa_operacional', 'fixo'],
+      ['Energia elétrica', 'despesa_operacional', 'fixo'], ['Telefonia e internet', 'despesa_operacional', 'fixo'], ['Software e licença de uso', 'despesa_operacional', 'fixo'],
+      ['Honorários contábeis', 'despesa_operacional', 'fixo'], ['Outras despesas', 'outra_despesa', 'fixo'],
     ],
   },
 };
 
 export const LINHAS_DRE = ['receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa'];
+export const GRUPOS_FORECAST = ['investimento', 'imposto_anuncio', 'variavel', 'fixo'];
 const DRE_PADRAO = { receita: 'receita_bruta', despesa: 'despesa_operacional' };
+const forecastPadrao = (dre) => (['deducao', 'custo', 'despesa_financeira'].includes(dre) ? 'variavel' : 'fixo');
 
 export async function criarCategoriasPadrao(empresaId, segmento = 'servico') {
   const { receitas, despesas } = CATEGORIAS_PADRAO[segmento] ?? CATEGORIAS_PADRAO.servico;
-  const todas = [...receitas.map(([n, d]) => [n, 'receita', d]), ...despesas.map(([n, d]) => [n, 'despesa', d])];
+  const todas = [...receitas.map(([n, d]) => [n, 'receita', d, '']), ...despesas.map(([n, d, f]) => [n, 'despesa', d, f])];
   await all(
-    `INSERT INTO categorias (empresa_id, nome, tipo, dre)
-     SELECT :eid::bigint, n, t, d FROM unnest(:nomes::text[], :tipos::text[], :dres::text[]) AS u(n, t, d)`,
-    { eid: empresaId, nomes: pgArray(todas.map((c) => c[0])), tipos: pgArray(todas.map((c) => c[1])), dres: pgArray(todas.map((c) => c[2])) },
+    `INSERT INTO categorias (empresa_id, nome, tipo, dre, grupo_forecast)
+     SELECT :eid::bigint, n, t, d, NULLIF(f, '') FROM unnest(:nomes::text[], :tipos::text[], :dres::text[], :fcs::text[]) AS u(n, t, d, f)`,
+    {
+      eid: empresaId,
+      nomes: pgArray(todas.map((c) => c[0])), tipos: pgArray(todas.map((c) => c[1])),
+      dres: pgArray(todas.map((c) => c[2])), fcs: pgArray(todas.map((c) => c[3])),
+    },
   );
 }
 
@@ -230,8 +253,12 @@ e.post('/categorias', async (req, res) => {
   check(['receita', 'despesa'].includes(req.body.tipo), 'Tipo de categoria inválido.');
   const dre = req.body.dre ?? DRE_PADRAO[req.body.tipo];
   check(LINHAS_DRE.includes(dre), 'Linha da DRE inválida.');
+  const grupo = req.body.tipo === 'despesa' ? (req.body.grupo_forecast ?? forecastPadrao(dre)) : null;
+  check(grupo === null || GRUPOS_FORECAST.includes(grupo), 'Grupo do Forecast inválido.');
   res.status(201).json(
-    await get('INSERT INTO categorias (empresa_id, nome, tipo, dre) VALUES (:eid, :nome, :tipo, :dre) RETURNING id', { eid: req.eid, nome, tipo: req.body.tipo, dre }),
+    await get('INSERT INTO categorias (empresa_id, nome, tipo, dre, grupo_forecast) VALUES (:eid, :nome, :tipo, :dre, :grupo) RETURNING id', {
+      eid: req.eid, nome, tipo: req.body.tipo, dre, grupo,
+    }),
   );
 });
 
@@ -242,7 +269,9 @@ e.put('/categorias/:id', async (req, res) => {
   const nome = optText(req.body.nome) ?? atual.nome;
   const dre = req.body.dre ?? atual.dre ?? DRE_PADRAO[atual.tipo];
   check(LINHAS_DRE.includes(dre), 'Linha da DRE inválida.');
-  await all('UPDATE categorias SET nome = :nome, dre = :dre WHERE id = :id', { nome, dre, id });
+  const grupo = atual.tipo === 'despesa' ? (req.body.grupo_forecast ?? atual.grupo_forecast ?? forecastPadrao(dre)) : null;
+  check(grupo === null || GRUPOS_FORECAST.includes(grupo), 'Grupo do Forecast inválido.');
+  await all('UPDATE categorias SET nome = :nome, dre = :dre, grupo_forecast = :grupo WHERE id = :id', { nome, dre, grupo, id });
   res.json({ ok: true });
 });
 
@@ -305,19 +334,46 @@ async function lerLancamento(body, eid) {
   check(isDate(l.vencimento), 'Informe a data de vencimento.');
   await pertence('categorias', l.categoria_id, eid);
   await pertence('contas_bancarias', l.conta_bancaria_id, eid);
+  // O nome digitado vira um cadastro de cliente/fornecedor (acha o existente ou cria).
+  const contato = await resolverContato(eid, l.contato, l.tipo);
+  l.contato_id = contato?.id ?? null;
+  l.contato = contato?.nome ?? null;
+  // Tipo de receita: valor explícito; "auto" (ou vazio) deixa o sistema sugerir. Despesas não têm.
+  l.tipo_receita = l.tipo === 'receber' && TIPOS_RECEITA.includes(body.tipo_receita) ? body.tipo_receita : null;
   return l;
 }
 
+export const TIPOS_RECEITA = ['recorrente', 'nova', 'avulsa'];
+
+/**
+ * Sugestão do tipo de receita quando o usuário deixa em "Automático":
+ * - mensalidade repetida (repetir N meses): 1ª é "nova venda" se o cliente ainda não era recorrente; as demais, "recorrente";
+ * - venda parcelada: "avulsa" (é uma venda só, dividida);
+ * - lançamento único: "recorrente" se o cliente teve receita recorrente nos últimos 2 meses; senão "avulsa".
+ */
+async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo) {
+  const jaRecorrente = contatoId
+    ? !!(await get(
+        `SELECT 1 FROM lancamentos WHERE empresa_id = :eid AND contato_id = :c AND tipo = 'receber'
+           AND tipo_receita IN ('recorrente', 'nova') AND vencimento < :venc AND vencimento >= (:venc::date - 62) LIMIT 1`,
+        { eid, c: contatoId, venc: vencimento },
+      ))
+    : false;
+  if (n > 1 && modo === 'repetir') return (i) => (i === 0 && !jaRecorrente ? 'nova' : 'recorrente');
+  if (n > 1) return () => 'avulsa';
+  return () => (jaRecorrente ? 'recorrente' : 'avulsa');
+}
+
 const INSERT_LANC = `INSERT INTO lancamentos
-  (empresa_id, tipo, descricao, contato, categoria_id, conta_bancaria_id, valor, vencimento, documento, observacao,
+  (empresa_id, tipo, descricao, contato, contato_id, tipo_receita, categoria_id, conta_bancaria_id, valor, vencimento, documento, observacao,
    data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas)
-  VALUES (:empresa_id, :tipo, :descricao, :contato, :categoria_id, :conta_bancaria_id, :valor, :vencimento, :documento, :observacao,
+  VALUES (:empresa_id, :tipo, :descricao, :contato, :contato_id, :tipo_receita, :categoria_id, :conta_bancaria_id, :valor, :vencimento, :documento, :observacao,
    :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas)
   RETURNING id`;
 
 export async function inserirLancamento(l) {
   const r = await get(INSERT_LANC, {
-    data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null,
+    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null,
     ...l,
   });
   return r.id;
@@ -340,11 +396,16 @@ e.post('/lancamentos', async (req, res) => {
     const grupo = n > 1 ? randomUUID() : null;
     const valorParcela = modo === 'parcelar' ? Math.floor(base.valor / n) : base.valor;
     const resto = modo === 'parcelar' ? base.valor - valorParcela * n : 0;
+    const tipoReceita =
+      base.tipo !== 'receber' ? () => null
+      : base.tipo_receita ? () => base.tipo_receita
+      : await sugerirTipoReceita(req.eid, base.contato_id, base.vencimento, n, modo);
     const ids = [];
     for (let i = 0; i < n; i++) {
       ids.push(
         await inserirLancamento({
           ...base,
+          tipo_receita: tipoReceita(i),
           empresa_id: req.eid,
           valor: valorParcela + (i === 0 ? resto : 0),
           vencimento: addMonths(base.vencimento, i),
@@ -368,8 +429,11 @@ e.put('/lancamentos/:id', async (req, res) => {
   const atual = await buscarLancamento(req.params.id, req.eid);
   const { tipo, ...l } = await lerLancamento({ ...req.body, tipo: atual.tipo }, req.eid);
   if (atual.data_pagamento) check(l.conta_bancaria_id, 'Lançamento pago precisa de conta bancária.');
+  // Sem escolha explícita, mantém o tipo de receita que já estava.
+  if (atual.tipo === 'receber' && !l.tipo_receita) l.tipo_receita = atual.tipo_receita;
   await all(
-    `UPDATE lancamentos SET descricao = :descricao, contato = :contato, categoria_id = :categoria_id, conta_bancaria_id = :conta_bancaria_id,
+    `UPDATE lancamentos SET descricao = :descricao, contato = :contato, contato_id = :contato_id, tipo_receita = :tipo_receita,
+       categoria_id = :categoria_id, conta_bancaria_id = :conta_bancaria_id,
        valor = :valor, vencimento = :vencimento, documento = :documento, observacao = :observacao
      WHERE id = :id AND empresa_id = :eid`,
     { ...l, id: atual.id, eid: req.eid },
@@ -471,6 +535,8 @@ e.use(conciliacaoRouter);
 e.use(equipeRouter);
 e.use(extratoRouter);
 e.use(relatoriosRouter);
+e.use(contatosRouter);
+e.use(forecastRouter);
 
 // ---------- Erros ----------
 

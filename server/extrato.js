@@ -26,7 +26,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
   const termo = q && normalizar(q);
 
   const linhas = await all(
-    `SELECT l.id, l.tipo, l.descricao, l.contato, l.documento, l.valor, l.valor_pago, l.vencimento, l.data_pagamento,
+    `SELECT l.id, l.tipo, l.descricao, l.contato, l.contato_id, l.tipo_receita, l.documento, l.valor, l.valor_pago, l.vencimento, l.data_pagamento,
        l.parcela, l.total_parcelas, l.categoria_id, l.conta_bancaria_id,
        c.nome AS categoria_nome, cb.nome AS conta_nome,
        COALESCE(l.data_pagamento, l.vencimento) AS data,
