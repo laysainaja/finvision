@@ -116,6 +116,23 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 create index if not exists ix_empresas_escritorio on empresas (escritorio_id);
 
+-- Linha da DRE onde cada categoria entra (receita bruta, deduções, custos, despesas operacionais, financeiras, outras).
+alter table categorias add column if not exists dre text;
+do $$ begin
+  alter table categorias add constraint categorias_dre_check check (dre in (
+    'receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa'));
+exception when duplicate_object then null; end $$;
+-- Classifica categorias antigas pelo nome (só as que ainda não têm classificação).
+update categorias set dre = case
+    when tipo = 'receita' and nome ilike any (array['%financeir%', '%juros%', '%rendimento%']) then 'receita_financeira'
+    when tipo = 'receita' and nome ilike 'outra%' then 'outra_receita'
+    when tipo = 'receita' then 'receita_bruta'
+    when nome ilike any (array['imposto%', '%simples%', '%das %', '%devolu%']) then 'deducao'
+    when nome ilike any (array['%compra de mercad%', '%fornecedor%', '%frete%', '%embalag%', '%prestadores de servi%', '%mercadoria%']) then 'custo'
+    when nome ilike any (array['%tarifa%', '%juros%', '%financeir%', '%iof%']) then 'despesa_financeira'
+    else 'despesa_operacional' end
+  where dre is null;
+
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
 -- Todo acesso passa pelo nosso servidor, que verifica o login e a empresa antes de cada consulta.

@@ -37,6 +37,58 @@ export interface EmpresaGestao {
   usuarios: number;
 }
 
+export type LinhaDRE = 'receita_bruta' | 'deducao' | 'custo' | 'despesa_operacional' | 'receita_financeira' | 'despesa_financeira' | 'outra_receita' | 'outra_despesa';
+export const NOME_LINHA_DRE: Record<LinhaDRE, string> = {
+  receita_bruta: 'Receita bruta',
+  deducao: 'Deduções / impostos sobre o faturamento',
+  custo: 'Custos (mercadorias e serviços)',
+  despesa_operacional: 'Despesas operacionais',
+  receita_financeira: 'Receitas financeiras',
+  despesa_financeira: 'Despesas financeiras',
+  outra_receita: 'Outras receitas',
+  outra_despesa: 'Outras despesas',
+};
+
+export type Regime = 'caixa' | 'competencia';
+type PorMes = Record<string, number>;
+
+export interface RelatorioDRE {
+  de: string;
+  ate: string;
+  regime: Regime;
+  meses: string[];
+  linhas: {
+    id: string;
+    nome: string;
+    tipo: 'grupo' | 'resultado';
+    valores: PorMes;
+    total: number;
+    av: number | null;
+    categorias?: { id: number | null; nome: string; valores: PorMes; total: number; av: number | null }[];
+  }[];
+}
+
+export interface RelatorioAnalise {
+  de: string;
+  ate: string;
+  regime: Regime;
+  tipo: TipoLancamento;
+  agrupar: 'categoria' | 'contato';
+  meses: string[];
+  itens: { nome: string; valores: PorMes; total: number; av: number }[];
+  totais: PorMes;
+  total: number;
+}
+
+export interface RelatorioVencidos {
+  hoje: string;
+  tipo: TipoLancamento;
+  faixas: { id: 'ate30' | 'ate60' | 'ate90' | 'mais90'; nome: string }[];
+  totais: Record<string, number>;
+  total: number;
+  contatos: ({ nome: string; total: number; qtd: number; maior_atraso: number; lancamentos: { id: number; descricao: string; vencimento: string; valor: number; dias: number; categoria_nome: string | null }[] } & Record<string, number | string | unknown>)[];
+}
+
 export type SituacaoExtrato = 'recebido' | 'pago' | 'aberto' | 'vencido';
 
 export interface ItemExtrato {
@@ -118,6 +170,7 @@ export interface Categoria {
   id: number;
   nome: string;
   tipo: 'receita' | 'despesa';
+  dre: LinhaDRE | null;
 }
 
 export interface Lancamento {

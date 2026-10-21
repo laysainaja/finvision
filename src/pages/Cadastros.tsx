@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR, hoje } from '../lib/format';
-import type { Categoria, ContaBancaria, Empresa } from '../types';
+import { NOME_LINHA_DRE, type Categoria, type ContaBancaria, type Empresa, type LinhaDRE } from '../types';
 import { Field, Icon, Modal, MoneyInput, useAcao } from '../components/ui';
 import { Equipe } from './Equipe';
 
@@ -104,15 +104,24 @@ function ContaModal({ conta, onClose }: { conta?: ContaBancaria; onClose: () => 
   );
 }
 
+const LINHAS_RECEITA: LinhaDRE[] = ['receita_bruta', 'receita_financeira', 'outra_receita'];
+const LINHAS_DESPESA: LinhaDRE[] = ['deducao', 'custo', 'despesa_operacional', 'despesa_financeira', 'outra_despesa'];
+
 function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
   const { base, categorias, recarregar } = useEmpresa();
   const acao = useAcao();
   const [nova, setNova] = useState('');
-  const lista = categorias.filter((c) => c.tipo === tipo);
+  const linhas = (tipo === 'receita' ? LINHAS_RECEITA : LINHAS_DESPESA);
+  const [novaDre, setNovaDre] = useState<LinhaDRE>(linhas[0]);
+  // Agrupadas pela linha da DRE, na ordem em que aparecem no relatório.
+  const lista = categorias.filter((c) => c.tipo === tipo).sort((a, b) => linhas.indexOf(a.dre ?? linhas[0]) - linhas.indexOf(b.dre ?? linhas[0]) || a.nome.localeCompare(b.nome));
 
   const adicionar = async () => {
     if (!nova.trim()) return;
-    if (await acao(() => api.post(`${base}/categorias`, { nome: nova, tipo }))) (setNova(''), recarregar());
+    if (await acao(() => api.post(`${base}/categorias`, { nome: nova, tipo, dre: novaDre }))) (setNova(''), recarregar());
+  };
+  const mudarDre = async (c: Categoria, dre: LinhaDRE) => {
+    if (await acao(() => api.put(`${base}/categorias/${c.id}`, { dre }), `"${c.nome}" agora entra em ${NOME_LINHA_DRE[dre]} na DRE.`)) recarregar();
   };
   const renomear = async (c: Categoria) => {
     const nome = prompt('Novo nome da categoria:', c.nome);
@@ -126,12 +135,18 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
   return (
     <div className="card">
       <div className="card-header">
-        <h2>{tipo === 'receita' ? 'Categorias de receita' : 'Categorias de despesa'}</h2>
+        <div>
+          <h2>{tipo === 'receita' ? 'Categorias de receita' : 'Categorias de despesa'}</h2>
+          <div className="muted small">Ao lado, a linha da DRE onde cada uma entra.</div>
+        </div>
       </div>
       {lista.map((c) => (
-        <div key={c.id} className="conta-linha">
-          <span>{c.nome}</span>
-          <span>
+        <div key={c.id} className="conta-linha" style={{ gap: 10 }}>
+          <span style={{ flex: 1, minWidth: 0 }}>{c.nome}</span>
+          <select className="select input" style={{ height: 30, maxWidth: 230 }} value={c.dre ?? linhas[0]} onChange={(e) => mudarDre(c, e.target.value as LinhaDRE)} aria-label={`Linha da DRE de ${c.nome}`}>
+            {linhas.map((l) => <option key={l} value={l}>{NOME_LINHA_DRE[l]}</option>)}
+          </select>
+          <span style={{ whiteSpace: 'nowrap' }}>
             <button className="btn btn-ghost btn-sm" onClick={() => renomear(c)} aria-label="Renomear"><Icon name="editar" /></button>
             <button className="btn btn-ghost btn-sm btn-danger" onClick={() => excluir(c)} aria-label="Excluir"><Icon name="lixo" /></button>
           </span>
@@ -139,6 +154,9 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
       ))}
       <div className="toolbar" style={{ borderBottom: 0, borderTop: '1px solid var(--border)' }}>
         <input className="input grow" placeholder="Nova categoria…" value={nova} onChange={(e) => setNova(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && adicionar()} />
+        <select className="select input" value={novaDre} onChange={(e) => setNovaDre(e.target.value as LinhaDRE)} aria-label="Linha da DRE da nova categoria">
+          {linhas.map((l) => <option key={l} value={l}>{NOME_LINHA_DRE[l]}</option>)}
+        </select>
         <button className="btn" onClick={adicionar}><Icon name="mais" /> Adicionar</button>
       </div>
     </div>

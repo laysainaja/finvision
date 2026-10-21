@@ -9,6 +9,7 @@ import { equipeRouter, conviteRouter, infoConvite } from './equipe.js';
 import { provedorEmail } from './email.js';
 import { gestaoRouter } from './gestao.js';
 import { extratoRouter } from './extrato.js';
+import { relatoriosRouter } from './relatorios.js';
 
 export const api = express.Router();
 
@@ -102,24 +103,34 @@ api.put('/empresas/:id', async (req, res) => {
   res.json(await exigirMembro(id, req.userId));
 });
 
+// [nome, linha da DRE]
 const CATEGORIAS_PADRAO = {
   servico: {
-    receitas: ['Prestação de serviços', 'Mensalidades e contratos', 'Honorários', 'Receitas financeiras', 'Outras receitas'],
-    despesas: ['Salários e encargos', 'Pró-labore', 'Prestadores de serviço', 'Aluguel', 'Impostos', 'Tarifas bancárias', 'Marketing', 'Software e serviços', 'Outras despesas'],
+    receitas: [['Prestação de serviços', 'receita_bruta'], ['Mensalidades e contratos', 'receita_bruta'], ['Honorários', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
+    despesas: [
+      ['Impostos sobre faturamento', 'deducao'], ['Prestadores de serviço', 'custo'], ['Salários e encargos', 'despesa_operacional'], ['Pró-labore', 'despesa_operacional'],
+      ['Aluguel', 'despesa_operacional'], ['Marketing', 'despesa_operacional'], ['Software e serviços', 'despesa_operacional'], ['Tarifas bancárias', 'despesa_financeira'], ['Outras despesas', 'outra_despesa'],
+    ],
   },
   produto: {
-    receitas: ['Venda de mercadorias', 'Fretes recebidos', 'Receitas financeiras', 'Outras receitas'],
-    despesas: ['Compra de mercadorias', 'Fretes e entregas', 'Embalagens', 'Salários e encargos', 'Aluguel', 'Impostos', 'Tarifas bancárias', 'Marketing', 'Outras despesas'],
+    receitas: [['Venda de mercadorias', 'receita_bruta'], ['Fretes recebidos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
+    despesas: [
+      ['Impostos sobre vendas', 'deducao'], ['Devoluções de vendas', 'deducao'], ['Compra de mercadorias', 'custo'], ['Fretes e entregas', 'custo'], ['Embalagens', 'custo'],
+      ['Salários e encargos', 'despesa_operacional'], ['Aluguel', 'despesa_operacional'], ['Marketing', 'despesa_operacional'], ['Tarifas bancárias', 'despesa_financeira'], ['Outras despesas', 'outra_despesa'],
+    ],
   },
 };
 
+export const LINHAS_DRE = ['receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa'];
+const DRE_PADRAO = { receita: 'receita_bruta', despesa: 'despesa_operacional' };
+
 export async function criarCategoriasPadrao(empresaId, segmento = 'servico') {
   const { receitas, despesas } = CATEGORIAS_PADRAO[segmento] ?? CATEGORIAS_PADRAO.servico;
+  const todas = [...receitas.map(([n, d]) => [n, 'receita', d]), ...despesas.map(([n, d]) => [n, 'despesa', d])];
   await all(
-    `INSERT INTO categorias (empresa_id, nome, tipo)
-     SELECT :eid::bigint, n, 'receita' FROM unnest(:receitas::text[]) n
-     UNION ALL SELECT :eid::bigint, n, 'despesa' FROM unnest(:despesas::text[]) n`,
-    { eid: empresaId, receitas: pgArray(receitas), despesas: pgArray(despesas) },
+    `INSERT INTO categorias (empresa_id, nome, tipo, dre)
+     SELECT :eid::bigint, n, t, d FROM unnest(:nomes::text[], :tipos::text[], :dres::text[]) AS u(n, t, d)`,
+    { eid: empresaId, nomes: pgArray(todas.map((c) => c[0])), tipos: pgArray(todas.map((c) => c[1])), dres: pgArray(todas.map((c) => c[2])) },
   );
 }
 
@@ -217,14 +228,21 @@ e.post('/categorias', async (req, res) => {
   const nome = optText(req.body.nome);
   check(nome, 'Informe o nome da categoria.');
   check(['receita', 'despesa'].includes(req.body.tipo), 'Tipo de categoria inválido.');
-  res.status(201).json(await get('INSERT INTO categorias (empresa_id, nome, tipo) VALUES (:eid, :nome, :tipo) RETURNING id', { eid: req.eid, nome, tipo: req.body.tipo }));
+  const dre = req.body.dre ?? DRE_PADRAO[req.body.tipo];
+  check(LINHAS_DRE.includes(dre), 'Linha da DRE inválida.');
+  res.status(201).json(
+    await get('INSERT INTO categorias (empresa_id, nome, tipo, dre) VALUES (:eid, :nome, :tipo, :dre) RETURNING id', { eid: req.eid, nome, tipo: req.body.tipo, dre }),
+  );
 });
 
 e.put('/categorias/:id', async (req, res) => {
-  const nome = optText(req.body.nome);
-  check(nome, 'Informe o nome da categoria.');
-  const r = await get('UPDATE categorias SET nome = :nome WHERE id = :id AND empresa_id = :eid RETURNING id', { nome, id: idParam(req.params.id), eid: req.eid });
-  check(r, 'Categoria não encontrada.', 404);
+  const id = idParam(req.params.id);
+  const atual = await get('SELECT * FROM categorias WHERE id = :id AND empresa_id = :eid', { id, eid: req.eid });
+  check(atual, 'Categoria não encontrada.', 404);
+  const nome = optText(req.body.nome) ?? atual.nome;
+  const dre = req.body.dre ?? atual.dre ?? DRE_PADRAO[atual.tipo];
+  check(LINHAS_DRE.includes(dre), 'Linha da DRE inválida.');
+  await all('UPDATE categorias SET nome = :nome, dre = :dre WHERE id = :id', { nome, dre, id });
   res.json({ ok: true });
 });
 
@@ -452,6 +470,7 @@ e.use(fluxoRouter);
 e.use(conciliacaoRouter);
 e.use(equipeRouter);
 e.use(extratoRouter);
+e.use(relatoriosRouter);
 
 // ---------- Erros ----------
 

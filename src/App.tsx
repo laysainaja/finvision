@@ -14,25 +14,62 @@ import { Cadastros } from './pages/Cadastros';
 import { Gestao } from './pages/Gestao';
 import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
+import { Analise, DRE, Margem, RELATORIOS, RelatoriosInicio, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 
 type ItemMenu = { id: string; label: string; icon: Parameters<typeof Icon>[0]['name'] };
-// Menu por seções, no modelo do Conta Azul. Itens exclusivos de cada segmento entram aqui nas próximas etapas.
-const MENU: { secao: string | null; itens: ItemMenu[] }[] = [
-  { secao: null, itens: [{ id: 'painel', label: 'Início', icon: 'painel' }] },
-  {
-    secao: 'Financeiro',
-    itens: [
-      { id: 'extrato', label: 'Extrato de movimentações', icon: 'extrato' },
-      { id: 'receber', label: 'Contas a receber', icon: 'receber' },
-      { id: 'pagar', label: 'Contas a pagar', icon: 'pagar' },
-      { id: 'fluxo', label: 'Fluxo de caixa', icon: 'fluxo' },
-      { id: 'conciliacao', label: 'Conciliação bancária', icon: 'banco' },
-    ],
-  },
-  { secao: 'Configurações', itens: [{ id: 'cadastros', label: 'Cadastros', icon: 'config' }] },
-];
-const ROTAS = [...MENU.flatMap((s) => s.itens.map((i) => i.id)), 'gestao'];
+type Secao = { secao: string | null; icon?: ItemMenu['icon']; itens: ItemMenu[] };
+
+// Menu por seções, no modelo do Conta Azul. Relatórios exclusivos aparecem só no segmento da empresa.
+function montarMenu(segmento: 'servico' | 'produto'): Secao[] {
+  return [
+    { secao: null, itens: [{ id: 'painel', label: 'Início', icon: 'painel' }] },
+    {
+      secao: 'Financeiro',
+      icon: 'dinheiro',
+      itens: [
+        { id: 'extrato', label: 'Extrato de movimentações', icon: 'extrato' },
+        { id: 'receber', label: 'Contas a receber', icon: 'receber' },
+        { id: 'pagar', label: 'Contas a pagar', icon: 'pagar' },
+        { id: 'fluxo', label: 'Fluxo de caixa', icon: 'fluxo' },
+        { id: 'conciliacao', label: 'Conciliação bancária', icon: 'banco' },
+      ],
+    },
+    {
+      secao: 'Relatórios',
+      icon: 'painel',
+      itens: [
+        { id: 'relatorios', label: 'Todos os relatórios', icon: 'painel' },
+        ...relatoriosDoSegmento(segmento).map((r) => ({ id: `relatorios/${r.id}`, label: r.nome, icon: 'extrato' as const })),
+      ],
+    },
+    { secao: 'Configurações', icon: 'config', itens: [{ id: 'cadastros', label: 'Cadastros', icon: 'config' }] },
+  ];
+}
+const ROTAS = ['painel', 'extrato', 'receber', 'pagar', 'fluxo', 'conciliacao', 'cadastros', 'gestao', 'relatorios', ...RELATORIOS.map((r) => `relatorios/${r.id}`)];
 type Rota = string;
+
+/** Quais seções do menu estão recolhidas (lembrado no navegador). */
+function useSecoesFechadas() {
+  const [fechadas, setFechadas] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('finvision:menu-fechado') ?? '[]'));
+    } catch {
+      return new Set();
+    }
+  });
+  const alternar = (secao: string) =>
+    setFechadas((f) => {
+      const n = new Set(f);
+      n.has(secao) ? n.delete(secao) : n.add(secao);
+      try {
+        localStorage.setItem('finvision:menu-fechado', JSON.stringify([...n]));
+      } catch {
+        /* sem armazenamento: só não lembra */
+      }
+      return n;
+    });
+  return { fechadas, alternar };
+}
 
 /** Gestão aparece para quem é do escritório, para quem ainda não está em nenhum e para donos de empresas avulsas.
  *  O cliente de um escritório (que só acessa a própria empresa por convite) não vê. */
@@ -62,6 +99,7 @@ function Layout() {
   const pendentes = contas.reduce((s, c) => s + c.pendentes_conciliacao, 0);
   const sair = () => supabase.auth.signOut();
   const temGestao = mostraGestao(empresas);
+  const { fechadas, alternar } = useSecoesFechadas();
 
   if (!empresa) {
     if (rota === 'gestao') {
@@ -90,6 +128,10 @@ function Layout() {
 
   const doEscritorio = empresas.filter((e) => e.escritorio_id);
   const avulsas = empresas.filter((e) => !e.escritorio_id);
+  const menu = montarMenu(empresa.segmento);
+  if (temGestao) menu.push({ secao: 'Escritório', icon: 'predio', itens: [{ id: 'gestao', label: 'Gestão', icon: 'predio' }] });
+  // Relatório exclusivo de outro segmento (ex.: link antigo): volta para a lista de relatórios.
+  const rotaValida = rota.startsWith('relatorios/') && !menu.some((s) => s.itens.some((i) => i.id === rota)) ? 'relatorios' : rota;
 
   return (
     <div className="app">
@@ -100,26 +142,29 @@ function Layout() {
           </div>
           FinVision
         </div>
-        {MENU.map((s) => (
-          <div key={s.secao ?? 'inicio'} className="nav-secao">
-            {s.secao && <div className="nav-titulo">{s.secao}</div>}
-            {s.itens.map((r) => (
-              <a key={r.id} href={`#/${r.id}`} className={'nav-item' + (rota === r.id ? ' ativo' : '')}>
-                <Icon name={r.icon} />
-                {r.label}
-                {r.id === 'conciliacao' && pendentes > 0 && <span className="nav-badge">{pendentes}</span>}
-              </a>
-            ))}
-          </div>
-        ))}
-        {temGestao && (
-          <div className="nav-secao">
-            <div className="nav-titulo">Escritório</div>
-            <a href="#/gestao" className={'nav-item' + (rota === 'gestao' ? ' ativo' : '')}>
-              <Icon name="predio" /> Gestão
-            </a>
-          </div>
-        )}
+        {menu.map((s) => {
+          const contemAtual = s.itens.some((i) => i.id === rotaValida);
+          // A seção da tela aberta fica sempre visível, mesmo que tenha sido recolhida.
+          const aberta = !s.secao || contemAtual || !fechadas.has(s.secao);
+          return (
+            <div key={s.secao ?? 'inicio'} className="nav-secao">
+              {s.secao && (
+                <button className={'nav-titulo' + (contemAtual ? ' atual' : '')} onClick={() => alternar(s.secao!)} aria-expanded={aberta} disabled={contemAtual} title={contemAtual ? 'Seção da tela atual' : aberta ? 'Recolher' : 'Expandir'}>
+                  {s.icon && <Icon name={s.icon} size={14} />}
+                  <span>{s.secao}</span>
+                  <span className={'nav-seta' + (aberta ? ' aberta' : '')}><Icon name="seta" size={14} /></span>
+                </button>
+              )}
+              {aberta && s.itens.map((r) => (
+                <a key={r.id} href={`#/${r.id}`} className={'nav-item' + (s.secao ? ' nav-sub' : '') + (rotaValida === r.id ? ' ativo' : '')}>
+                  {!s.secao && <Icon name={r.icon} />}
+                  {r.label}
+                  {r.id === 'conciliacao' && pendentes > 0 && <span className="nav-badge">{pendentes}</span>}
+                </a>
+              ))}
+            </div>
+          );
+        })}
         <div className="sidebar-rodape">v0.3</div>
       </nav>
       <div className="main">
@@ -149,14 +194,30 @@ function Layout() {
         </header>
         {/* key: ao trocar de empresa, a página é remontada e os filtros/estado começam do zero */}
         <main className="content" key={empresa.id}>
-          {rota === 'painel' && <Painel />}
-          {rota === 'extrato' && <Extrato />}
-          {rota === 'receber' && <Lancamentos tipo="receber" />}
-          {rota === 'pagar' && <Lancamentos tipo="pagar" />}
-          {rota === 'fluxo' && <FluxoCaixa />}
-          {rota === 'conciliacao' && <Conciliacao />}
-          {rota === 'cadastros' && <Cadastros />}
-          {rota === 'gestao' && <Gestao />}
+          {rotaValida === 'painel' && <Painel />}
+          {rotaValida === 'extrato' && <Extrato />}
+          {rotaValida === 'receber' && <Lancamentos tipo="receber" />}
+          {rotaValida === 'pagar' && <Lancamentos tipo="pagar" />}
+          {rotaValida === 'fluxo' && <FluxoCaixa />}
+          {rotaValida === 'conciliacao' && <Conciliacao />}
+          {rotaValida === 'cadastros' && <Cadastros />}
+          {rotaValida === 'gestao' && <Gestao />}
+          {rotaValida === 'relatorios' && <RelatoriosInicio />}
+          {rotaValida === 'relatorios/dre' && <DRE />}
+          {rotaValida === 'relatorios/margem' && <Margem />}
+          {rotaValida === 'relatorios/vencidos' && <Vencidos />}
+          {rotaValida === 'relatorios/recebimentos' && (
+            <Analise key="rec" tipo="receber" agruparInicial="categoria" titulo="Análise de recebimentos" descricao="Quanto entrou em cada categoria (ou de cada cliente), mês a mês, e o peso de cada uma no total." />
+          )}
+          {rotaValida === 'relatorios/pagamentos' && (
+            <Analise key="pag" tipo="pagar" agruparInicial="categoria" titulo="Análise de pagamentos" descricao="Quanto saiu em cada categoria (ou para cada fornecedor), mês a mês, e o peso de cada uma no total." />
+          )}
+          {rotaValida === 'relatorios/clientes' && (
+            <Analise key="cli" tipo="receber" agruparInicial="contato" fixo titulo="Receita por cliente" descricao="Quanto cada cliente pagou, mês a mês, e a participação de cada um no faturamento." />
+          )}
+          {rotaValida === 'relatorios/fornecedores' && (
+            <Analise key="forn" tipo="pagar" agruparInicial="contato" fixo titulo="Gastos por fornecedor" descricao="Quanto foi pago a cada fornecedor, mês a mês." />
+          )}
         </main>
       </div>
       {novaEmpresa && <EmpresaModal onClose={() => setNovaEmpresa(false)} />}

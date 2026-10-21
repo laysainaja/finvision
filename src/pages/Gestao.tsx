@@ -101,6 +101,10 @@ export function Gestao() {
     setEmpresaId(e.id);
     location.hash = `#/${rota}`;
   };
+  const renomear = async () => {
+    const nome = prompt('Novo nome do escritório:', esc.nome);
+    if (nome && nome.trim() && nome !== esc.nome && (await acao(() => api.put('/gestao/escritorio', { nome }), 'Escritório renomeado.'))) recarregar();
+  };
   const fazerVinculo = async () => {
     if (vincular && (await acao(() => api.post('/gestao/vincular', { empresa_id: Number(vincular) }), 'Empresa vinculada ao escritório.'))) (setVincular(''), recarregar());
   };
@@ -109,7 +113,12 @@ export function Gestao() {
     <>
       <div className="page-header">
         <div>
-          <h1>Gestão · {esc.nome}</h1>
+          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Gestão · {esc.nome}
+            {esc.papel === 'admin' && (
+              <button className="btn btn-ghost btn-sm" onClick={renomear} title="Renomear escritório" aria-label="Renomear escritório"><Icon name="editar" /></button>
+            )}
+          </h1>
           <p>Empresas clientes do escritório. Defina o segmento de cada uma e entre para trabalhar.</p>
         </div>
         <button className="btn btn-primary" onClick={() => setNova(true)}><Icon name="mais" /> Nova empresa cliente</button>
