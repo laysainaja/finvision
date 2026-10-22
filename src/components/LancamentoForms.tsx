@@ -65,6 +65,9 @@ export function LancamentoForm({
     data_pagamento: hoje(),
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  // Editando uma parcela/repetição: aplicar só nela, nela e nas próximas, ou em todas do grupo.
+  const emGrupo = editando && !!lancamento.grupo_parcelas && (lancamento.total_parcelas ?? 0) > 1;
+  const [escopo, setEscopo] = useState<'este' | 'proximos' | 'todos'>('este');
   const { salvando, erro, salvar } = useSalvar();
   const cats = categorias.filter((c) => c.tipo === (tipo === 'pagar' ? 'despesa' : 'receita'));
 
@@ -86,9 +89,14 @@ export function LancamentoForm({
         pagamento: f.jaPago ? { data_pagamento: f.data_pagamento } : undefined,
       }),
     };
-    const ok = await salvar(() => (editando ? api.put(`${base}/lancamentos/${lancamento.id}`, corpo) : api.post(`${base}/lancamentos`, corpo)));
+    let outras = 0;
+    const ok = await salvar(async () => {
+      if (!editando) return api.post(`${base}/lancamentos`, corpo);
+      const r = await api.put<{ outras_atualizadas?: number }>(`${base}/lancamentos/${lancamento.id}`, { ...corpo, escopo: emGrupo ? escopo : 'este' });
+      outras = r.outras_atualizadas ?? 0;
+    });
     if (ok) {
-      toast(editando ? 'Lançamento atualizado.' : f.parcelas > 1 ? `${f.parcelas} parcelas criadas.` : 'Lançamento criado.');
+      toast(editando ? (outras ? `Lançamento atualizado, e mais ${outras} do mesmo grupo.` : 'Lançamento atualizado.') : f.parcelas > 1 ? `${f.parcelas} parcelas criadas.` : 'Lançamento criado.');
       onSaved();
     }
   };
@@ -201,6 +209,27 @@ export function LancamentoForm({
         <Field label="Observação" className="full">
           <textarea className="input" rows={2} value={f.observacao} onChange={(e) => set('observacao', e.target.value)} />
         </Field>
+        {emGrupo && (
+          <fieldset className="full escopo-edicao">
+            <legend>Este lançamento é a parcela {lancamento.parcela}/{lancamento.total_parcelas}. Aplicar a alteração em:</legend>
+            {(
+              [
+                ['este', 'Somente este lançamento'],
+                ['proximos', 'Este e os próximos'],
+                ['todos', `Todos os ${lancamento.total_parcelas}`],
+              ] as const
+            ).map(([v, label]) => (
+              <label key={v} className="check">
+                <input type="radio" name="escopo" checked={escopo === v} onChange={() => setEscopo(v)} /> {label}
+              </label>
+            ))}
+            {escopo !== 'este' && (
+              <div className="muted small">
+                Descrição, {nomes.contato.toLowerCase()}, categoria, documento e observação mudam em todos; valor, conta e data (deslocada pelos mesmos dias) só nos que ainda estão em aberto.
+              </div>
+            )}
+          </fieldset>
+        )}
         <button type="submit" hidden />
       </form>
     </Modal>

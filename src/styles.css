@@ -443,3 +443,8 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .sidebar[hidden] { display: none; }
 .btn-menu { padding: 6px; }
 .menu-lista.menu-solto { position: fixed; left: auto; z-index: 60; }
+
+/* Editar parcela: escolher o alcance */
+.escopo-edicao { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; }
+.escopo-edicao legend { font-weight: 600; padding: 0 4px; }
+.escopo-edicao > div { flex-basis: 100%; }

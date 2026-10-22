@@ -1,7 +1,7 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { sql, all, get, transaction, hoje, STATUS_SQL } from './db.js';
-import { HttpError, check, isDate, isCents, optText, optId, idParam, pgArray, addMonths, addDays } from './util.js';
+import { HttpError, check, isDate, isCents, optText, optId, idParam, pgArray, addMonths, addDays, diffDays } from './util.js';
 import { autenticar, authConfigurado } from './auth.js';
 import { fluxoRouter } from './fluxo.js';
 import { conciliacaoRouter } from './conciliacao.js';
@@ -489,7 +489,33 @@ e.put('/lancamentos/:id', async (req, res) => {
      WHERE id = :id AND empresa_id = :eid`,
     { ...l, id: atual.id, eid: req.eid },
   );
-  res.json(await buscarLancamento(atual.id, req.eid));
+
+  // Parcelas/recorrência: "proximos" (esta e as seguintes) ou "todos" levam as mudanças para as outras do grupo.
+  // Descrição, contato, categoria, documento e observação valem até para as já pagas; valor, conta e data
+  // (deslocada pelos mesmos dias) só para as que ainda estão em aberto, para não mexer no que já foi pago.
+  let outras = 0;
+  const escopo = ['proximos', 'todos'].includes(req.body.escopo) ? req.body.escopo : 'este';
+  if (escopo !== 'este' && atual.grupo_parcelas) {
+    const dias = diffDays(l.vencimento, atual.vencimento); // quantos dias a data andou
+    const p = { ...l, grupo: atual.grupo_parcelas, id: atual.id, eid: req.eid, dias, parcela: atual.parcela ?? 0, venc: atual.vencimento };
+    const alvo = `empresa_id = :eid AND grupo_parcelas = :grupo AND id <> :id AND transferencia_id IS NULL
+      ${escopo === 'proximos' ? 'AND (CASE WHEN parcela IS NOT NULL AND :parcela > 0 THEN parcela > :parcela ELSE vencimento > :venc::date END)' : ''}`;
+    await transaction(async () => {
+      const r = await all(
+        `UPDATE lancamentos SET descricao = :descricao, contato = :contato, contato_id = :contato_id, categoria_id = :categoria_id,
+           documento = :documento, observacao = :observacao ${atual.tipo === 'receber' && req.body.tipo_receita && req.body.tipo_receita !== 'auto' ? ', tipo_receita = :tipo_receita' : ''}
+         WHERE ${alvo} RETURNING id`,
+        p,
+      );
+      outras = r.length;
+      await all(
+        `UPDATE lancamentos SET valor = :valor, conta_bancaria_id = :conta_bancaria_id, vencimento = vencimento + (:dias)::int
+         WHERE ${alvo} AND data_pagamento IS NULL`,
+        p,
+      );
+    });
+  }
+  res.json({ ...(await buscarLancamento(atual.id, req.eid)), outras_atualizadas: outras });
 });
 
 e.delete('/lancamentos/:id', async (req, res) => {
