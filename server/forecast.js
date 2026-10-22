@@ -27,7 +27,7 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
   const mesAnteriorAoPeriodo = addMonths(de, -1).slice(0, 7); // para calcular o churn do primeiro mês
   const p = { eid: req.eid, de: addMonths(de, -1), ate };
 
-  const [receitas, despesas, saldoContas, movAntes, caixaMov, ajustes] = await Promise.all([
+  const [receitas, despesas, saldoContas, movAntes, caixaMov, foraResultado, ajustes] = await Promise.all([
     all(
       `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, l.tipo_receita, COALESCE(c.dre, '') AS dre,
          COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
@@ -61,6 +61,15 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
            OR (l.data_pagamento IS NULL AND l.vencimento <= :ate))
        GROUP BY 1`,
       { eid: req.eid, de, ate, hoje: h },
+    ),
+    // Aportes, reserva e empréstimos: mexem no caixa, não no lucro. Transferências entre contas próprias se anulam e ficam de fora.
+    all(
+      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, c.nome,
+         SUM(CASE WHEN l.tipo = 'receber' THEN 1 ELSE -1 END * COALESCE(l.valor_pago, l.valor))::bigint AS valor
+       FROM lancamentos l JOIN categorias c ON c.id = l.categoria_id
+       WHERE l.empresa_id = :eid AND c.dre = 'fora_resultado' AND c.nome !~* '^transfer' AND l.vencimento BETWEEN :de AND :ate
+       GROUP BY 1, 2`,
+      p,
     ),
     all("SELECT mes, campo, valor FROM forecast_ajustes WHERE empresa_id = :eid AND mes BETWEEN :de AND :ate", { eid: req.eid, de: de.slice(0, 7), ate: ate.slice(0, 7) }),
   ]);
@@ -126,6 +135,19 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
       .sort((a, b) => a.nome.localeCompare(b.nome))
       .map((c) => linha(c.id, c.nome, 'moeda', (m) => c.valores[m] ?? 0));
 
+  // Uma linha por categoria (entrada positiva, saída negativa); some a que se anula em todos os meses (ex.: antecipação que entra e sai igual).
+  const foraPorNome = new Map();
+  for (const r of foraResultado) {
+    if (!meses.includes(r.mes)) continue;
+    if (!foraPorNome.has(r.nome)) foraPorNome.set(r.nome, {});
+    foraPorNome.get(r.nome)[r.mes] = (foraPorNome.get(r.nome)[r.mes] ?? 0) + r.valor;
+  }
+  const linhasFora = [...foraPorNome]
+    .filter(([, v]) => Object.values(v).some((x) => x !== 0))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([nome, v], i) => linha(`fora-${i}`, nome, 'moeda', (m) => v[m] ?? 0));
+  const totalFora = (m) => [...foraPorNome.values()].reduce((s, v) => s + (v[m] ?? 0), 0);
+
   const blocos = [
     {
       id: 'performance', titulo: 'Investimento e Performance',
@@ -160,6 +182,11 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     { id: 'receita', titulo: 'Receita', linhas: [], destaque: linha('receita', 'Receita (R$)', 'moeda', (m) => porMes[m].receita) },
     { id: 'variaveis', titulo: 'Custos variáveis (R$)', linhas: linhasCategoria('variavel'), destaque: linha('total_variavel', 'Total de custos variáveis', 'moeda', totalVariavel) },
     { id: 'fixos', titulo: 'Custos fixos (R$)', linhas: linhasCategoria('fixo'), destaque: linha('total_fixo', 'Total de custos fixos', 'moeda', totalFixo) },
+    // Só aparece quando houve aporte, reserva ou empréstimo no período.
+    ...(linhasFora.length ? [{
+      id: 'fora_resultado', titulo: 'Aportes, reserva e empréstimos (mexem no caixa, não no lucro)',
+      linhas: linhasFora, destaque: linha('total_fora', 'Saldo das movimentações (+ entrou / − saiu)', 'moeda', totalFora),
+    }] : []),
     {
       id: 'resultado', titulo: 'Resultado',
       linhas: [

@@ -87,18 +87,23 @@ export function Conciliacao() {
           <h1>Conciliação bancária</h1>
           <p>Importe o extrato do banco e confira cada movimento com as contas a pagar e a receber.</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <select className="select input" value={contaId} onChange={(e) => setContaId(Number(e.target.value))} aria-label="Conta bancária">
-            {ativas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}{c.banco ? ` · ${c.banco}` : ''}
-              </option>
-            ))}
-          </select>
-          <button className="btn" onClick={autoConciliar} disabled={!conta?.pendentes_conciliacao}>
-            <Icon name="raio" /> Conciliar automaticamente
+        <button className="btn" onClick={autoConciliar} disabled={!conta?.pendentes_conciliacao}>
+          <Icon name="raio" /> Conciliar automaticamente
+        </button>
+      </div>
+
+      {/* Um banco por aba: fica claro em qual conta o extrato vai entrar. */}
+      <div className="bancos-abas" role="tablist" aria-label="Conta bancária">
+        {ativas.map((c) => (
+          <button key={c.id} role="tab" aria-selected={c.id === contaId} className={'banco-aba' + (c.id === contaId ? ' ativo' : '')} onClick={() => setContaId(c.id)}>
+            <span className="banco-aba-nome">{c.nome}</span>
+            {c.banco && <span className="small muted">{c.banco}</span>}
+            <span className="banco-aba-rodape">
+              <span className="num">{brl(c.saldo_atual)}</span>
+              {c.pendentes_conciliacao > 0 && <span className="badge badge-aberto">{c.pendentes_conciliacao} pendente(s)</span>}
+            </span>
           </button>
-        </div>
+        ))}
       </div>
 
       <div
@@ -113,7 +118,7 @@ export function Conciliacao() {
         }}
       >
         <Icon name="upload" size={22} />
-        <div style={{ fontWeight: 600, marginTop: 6 }}>Arraste o extrato aqui ou clique para escolher</div>
+        <div style={{ fontWeight: 600, marginTop: 6 }}>Arraste aqui o extrato do <span className="destaque-conta">{conta?.nome}</span> ou clique para escolher</div>
         <div className="small">OFX (recomendado) ou CSV exportado do internet banking · importar de novo não duplica</div>
         <input
           ref={inputArquivo}
@@ -360,6 +365,9 @@ function PreviaImportacao({
       }
     >
       <div>
+        <div className="aviso-box" style={{ marginBottom: 8 }}>
+          <Icon name="alerta" /> Este extrato vai entrar na conta <b>{contaNome}</b>. Confira se é o banco certo antes de importar.
+        </div>
         <b>{nome}</b> → <b>{contaNome}</b>
         <div className="muted">
           De {dataBR(datas[0])} a {dataBR(datas[datas.length - 1])} · {itens.length} transações

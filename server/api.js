@@ -105,11 +105,17 @@ api.put('/empresas/:id', async (req, res) => {
   res.json(await exigirMembro(id, req.userId));
 });
 
+// Dinheiro que entra ou sai sem ser receita nem despesa: mexe no caixa, mas fica fora da DRE e do lucro.
+const MOVIMENTOS_DE_CAIXA = {
+  receitas: [['Aporte de sócios', 'fora_resultado'], ['Resgate de reserva', 'fora_resultado'], ['Empréstimo recebido', 'fora_resultado']],
+  despesas: [['Aplicação em reserva', 'fora_resultado', 'fixo'], ['Devolução de aporte a sócios', 'fora_resultado', 'fixo'], ['Pagamento de empréstimo', 'fora_resultado', 'fixo'], ['Distribuição de lucros', 'fora_resultado', 'fixo']],
+};
+
 // Receitas: [nome, linha da DRE]. Despesas: [nome, linha da DRE, grupo do Forecast].
 // As despesas de serviço seguem a planilha de Forecast usada pelo escritório.
 const CATEGORIAS_PADRAO = {
   servico: {
-    receitas: [['Prestação de serviços', 'receita_bruta'], ['Mensalidades e contratos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
+    receitas: [['Prestação de serviços', 'receita_bruta'], ['Mensalidades e contratos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita'], ...MOVIMENTOS_DE_CAIXA.receitas],
     despesas: [
       ['Investimento em anúncios', 'despesa_operacional', 'investimento'], ['Imposto sobre anúncios', 'despesa_operacional', 'imposto_anuncio'],
       ['Imposto', 'deducao', 'variavel'], ['Taxas bancárias', 'despesa_financeira', 'variavel'], ['Comissão', 'custo', 'variavel'],
@@ -123,10 +129,11 @@ const CATEGORIAS_PADRAO = {
       ['Água e saneamento', 'despesa_operacional', 'fixo'], ['FGTS', 'despesa_operacional', 'fixo'], ['INSS', 'despesa_operacional', 'fixo'],
       ['Condomínio', 'despesa_operacional', 'fixo'], ['Materiais de limpeza e de higiene', 'despesa_operacional', 'fixo'],
       ['Materiais de escritório', 'despesa_operacional', 'fixo'], ['Gratificações', 'despesa_operacional', 'fixo'], ['Honorários advocatícios', 'despesa_operacional', 'fixo'],
+      ...MOVIMENTOS_DE_CAIXA.despesas,
     ],
   },
   produto: {
-    receitas: [['Venda de mercadorias', 'receita_bruta'], ['Fretes recebidos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita']],
+    receitas: [['Venda de mercadorias', 'receita_bruta'], ['Fretes recebidos', 'receita_bruta'], ['Receitas financeiras', 'receita_financeira'], ['Outras receitas', 'outra_receita'], ...MOVIMENTOS_DE_CAIXA.receitas],
     despesas: [
       ['Investimento em anúncios', 'despesa_operacional', 'investimento'], ['Imposto sobre anúncios', 'despesa_operacional', 'imposto_anuncio'],
       ['Impostos sobre vendas', 'deducao', 'variavel'], ['Devoluções de vendas', 'deducao', 'variavel'], ['Compra de mercadorias', 'custo', 'variavel'],
@@ -134,6 +141,7 @@ const CATEGORIAS_PADRAO = {
       ['Salários e encargos', 'despesa_operacional', 'fixo'], ['Pró-labore', 'despesa_operacional', 'fixo'], ['Aluguel', 'despesa_operacional', 'fixo'],
       ['Energia elétrica', 'despesa_operacional', 'fixo'], ['Telefonia e internet', 'despesa_operacional', 'fixo'], ['Software e licença de uso', 'despesa_operacional', 'fixo'],
       ['Honorários contábeis', 'despesa_operacional', 'fixo'], ['Outras despesas', 'outra_despesa', 'fixo'],
+      ...MOVIMENTOS_DE_CAIXA.despesas,
     ],
   },
 };

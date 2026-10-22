@@ -4,7 +4,7 @@ import { useEmpresa } from '../lib/empresa';
 import { addMeses, brl, dataBR, fimMes, hoje, inicioMes, mesCurto, num } from '../lib/format';
 import { exportarCSV, pctCSV } from '../lib/exportar';
 import type { Regime, RelatorioAnalise, RelatorioDRE, RelatorioVencidos, TipoLancamento } from '../types';
-import { Icon } from '../components/ui';
+import { Icon, Modal } from '../components/ui';
 
 // ---------- Catálogo ----------
 
@@ -261,6 +261,47 @@ export function Margem() {
 
 // ---------- Análises (recebimentos / pagamentos / por cliente / por fornecedor) ----------
 
+interface LancamentoAnalise { id: number; data: string; descricao: string; contato: string | null; categoria: string | null; conta: string | null; valor: number; juros: number; multa: number; desconto: number }
+
+/** Lista dos lançamentos por trás de uma linha da análise (e, se escolhido, de um mês). */
+function DetalheAnalise({ filtro, onClose }: { filtro: { tipo: TipoLancamento; agrupar: string; nome: string; mes?: string; de: string; ate: string; regime: Regime }; onClose: () => void }) {
+  const { base } = useEmpresa();
+  const { data, erro } = useApi<LancamentoAnalise[]>(`${base}/relatorios/analise/lancamentos${qs(filtro)}`);
+  const total = data?.reduce((s, l) => s + l.valor, 0) ?? 0;
+  const outraColuna = filtro.agrupar === 'categoria' ? (filtro.tipo === 'receber' ? 'Cliente' : 'Fornecedor') : 'Categoria';
+  return (
+    <Modal titulo={`${filtro.nome}${filtro.mes ? ` · ${mesCurto(filtro.mes + '-01')}` : ''}`} onClose={onClose} largura={860}
+      rodape={<button className="btn" onClick={onClose}>Fechar</button>}>
+      <div className="muted small">
+        {filtro.tipo === 'receber' ? 'Recebimentos' : 'Pagamentos'} {filtro.regime === 'caixa' ? 'pela data do pagamento' : 'pela data de vencimento'}
+        {!filtro.mes && <> de {dataBR(filtro.de)} a {dataBR(filtro.ate)}</>}
+        {data && <> · {data.length} lançamento(s) · total <b className="num">{brl(total)}</b></>}
+      </div>
+      {erro && <div className="erro-box">{erro}</div>}
+      {data && (
+        <div className="table-wrap" style={{ maxHeight: 440 }}>
+          <table>
+            <thead>
+              <tr><th>Data</th><th>Descrição</th><th>{outraColuna}</th><th>Conta</th><th className="r">Valor</th></tr>
+            </thead>
+            <tbody>
+              {data.map((l) => (
+                <tr key={l.id}>
+                  <td className="num muted">{dataBR(l.data)}</td>
+                  <td>{l.descricao}{(l.juros > 0 || l.multa > 0 || l.desconto > 0) && <div className="small muted">{[l.juros > 0 && `juros ${brl(l.juros)}`, l.multa > 0 && `multa ${brl(l.multa)}`, l.desconto > 0 && `desconto ${brl(l.desconto)}`].filter(Boolean).join(' · ')}</div>}</td>
+                  <td>{(filtro.agrupar === 'categoria' ? l.contato : l.categoria) ?? '—'}</td>
+                  <td className="muted">{l.conta ?? '—'}</td>
+                  <td className="r num">{brl(l.valor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
   tipo: TipoLancamento; agruparInicial: 'categoria' | 'contato'; fixo?: boolean; titulo: string; descricao: string;
 }) {
@@ -272,6 +313,7 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
   const nomeContato = tipo === 'receber' ? 'Cliente' : 'Fornecedor';
   const cor = tipo === 'receber' ? 'var(--serie-entrada)' : 'var(--serie-saida)';
   const top = data?.itens.slice(0, 10) ?? [];
+  const [detalhe, setDetalhe] = useState<{ nome: string; mes?: string } | null>(null);
   const exportar = () => data && exportarCSV(`${titulo} ${empresa?.nome} ${data.de} a ${data.ate}`, [agrupar === 'categoria' ? 'Categoria' : nomeContato, ...data.meses.map((m) => mesCurto(m + '-01')), 'Total', 'AV%'],
     [...data.itens.map((i) => [i.nome, ...data.meses.map((m) => i.valores[m]), i.total, pctCSV(i.av)]), ['Total', ...data.meses.map((m) => data.totais[m]), data.total, '100%']]);
 
@@ -296,7 +338,7 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
               </div>
               <div className="barras-h">
                 {top.map((i) => (
-                  <div key={i.nome} className="barra-h" title={`${i.nome}: ${brl(i.total)} (${i.av.toLocaleString('pt-BR')}%)`}>
+                  <div key={i.nome} className="barra-h clicavel" title={`${i.nome}: ${brl(i.total)} (${i.av.toLocaleString('pt-BR')}%) · clique para ver os lançamentos`} onClick={() => setDetalhe({ nome: i.nome })}>
                     <span className="barra-h-nome">{i.nome}</span>
                     <span className="barra-h-trilho"><span style={{ width: `${(i.total / (top[0]?.total || 1)) * 100}%`, background: cor }} /></span>
                     <span className="num small">{brl(i.total)}</span>
@@ -319,11 +361,15 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
                   </thead>
                   <tbody>
                     {data.itens.map((i) => (
-                      <tr key={i.nome}>
-                        <td className="col-fixa">{i.nome}</td>
+                      <tr key={i.nome} className="linha-clicavel">
+                        <td className="col-fixa"><button className="link-botao" onClick={() => setDetalhe({ nome: i.nome })} title="Ver os lançamentos">{i.nome}</button></td>
                         <Valor v={i.total} forte />
                         <Pct v={i.av} />
-                        {data.meses.map((m) => <Valor key={m} v={i.valores[m]} />)}
+                        {data.meses.map((m) => (
+                          <td key={m} className={'r num clicavel' + (i.valores[m] === 0 ? ' muted' : '')} onClick={() => i.valores[m] !== 0 && setDetalhe({ nome: i.nome, mes: m })} title={i.valores[m] ? 'Ver os lançamentos deste mês' : undefined}>
+                            {i.valores[m] === 0 ? '–' : num(i.valores[m])}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
@@ -341,6 +387,8 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
           </>
         )}
       </div>
+      {detalhe && <DetalheAnalise filtro={{ tipo, agrupar, nome: detalhe.nome, mes: detalhe.mes, de: periodo.de, ate: periodo.ate, regime }} onClose={() => setDetalhe(null)} />}
+      {data && data.itens.length > 0 && <p className="muted small" style={{ margin: 0 }}>Clique numa {agrupar === 'categoria' ? 'categoria' : (tipo === 'receber' ? 'linha de cliente' : 'linha de fornecedor')} (ou no valor de um mês) para ver os lançamentos.</p>}
     </>
   );
 }

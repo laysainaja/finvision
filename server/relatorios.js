@@ -104,12 +104,37 @@ relatoriosRouter.get('/relatorios/dre', async (req, res) => {
 
 // ---------- Análise de recebimentos / pagamentos ----------
 
+/** Como cada linha da análise é agrupada. Por cliente/fornecedor: pelo cadastro (o mesmo cliente escrito de jeitos diferentes soma junto). */
+function chaveAnalise(q) {
+  const tipo = q.tipo === 'pagar' ? 'pagar' : 'receber';
+  const agrupar = ['categoria', 'contato'].includes(q.agrupar) ? q.agrupar : 'categoria';
+  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')` : `COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
+  return { tipo, agrupar, chave };
+}
+
+// Os lançamentos que formam uma linha da análise (ao clicar na categoria ou no cliente/fornecedor).
+relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
+  const p = lerPeriodo(req.query);
+  const { tipo, chave } = chaveAnalise(req.query);
+  check(typeof req.query.nome === 'string' && req.query.nome, 'Informe a linha da análise.');
+  const mes = /^\d{4}-\d{2}$/.test(req.query.mes ?? '') ? req.query.mes : null;
+  const data = p.regime === 'caixa' ? 'l.data_pagamento' : 'l.vencimento';
+  const valor = p.regime === 'caixa' ? 'l.valor_pago' : 'COALESCE(l.valor_pago, l.valor)';
+  res.json(await all(
+    `SELECT l.id, ${data} AS data, l.descricao, COALESCE(ct.nome, l.contato) AS contato, c.nome AS categoria, cb.nome AS conta,
+       ${valor} AS valor, l.data_pagamento, l.vencimento, l.juros, l.multa, l.desconto
+     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
+       LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id
+     WHERE l.empresa_id = :eid AND l.tipo = :tipo AND ${data} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO} AND ${chave} = :nome
+       ${mes ? `AND to_char(${data}, 'YYYY-MM') = :mes` : ''} ${p.contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
+     ORDER BY ${data}, l.id LIMIT 2000`,
+    { eid: req.eid, tipo, de: p.de, ate: p.ate, nome: req.query.nome, ...(mes && { mes }), ...(p.contaId && { conta: p.contaId }) },
+  ));
+});
+
 relatoriosRouter.get('/relatorios/analise', async (req, res) => {
   const p = lerPeriodo(req.query);
-  const tipo = req.query.tipo === 'pagar' ? 'pagar' : 'receber';
-  const agrupar = ['categoria', 'contato'].includes(req.query.agrupar) ? req.query.agrupar : 'categoria';
-  // Por cliente/fornecedor: pelo cadastro (o mesmo cliente escrito de jeitos diferentes soma junto).
-  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')` : `COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
+  const { tipo, agrupar, chave } = chaveAnalise(req.query);
   const linhas = (await movimentos({ eid: req.eid, ...p }, chave)).filter((r) => r.tipo === tipo);
 
   const itens = new Map();

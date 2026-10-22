@@ -87,8 +87,8 @@ const DESTINO = {
 };
 // Movimentos de reserva e aportes que o Conta Azul deixou "a identificar": mexem no caixa, mas não são resultado.
 const POR_DESCRICAO = [
-  { re: /^reserva\b/i, receita: ['Resgate da reserva', FORA], despesa: ['Aplicação na reserva', FORA, 'fixo'] },
-  { re: /^aporte\b/i, receita: ['Empréstimos e aportes de sócios', FORA], despesa: ['Devolução de empréstimos e aportes', FORA, 'fixo'] },
+  { re: /^reserva\b/i, receita: ['Resgate de reserva', FORA], despesa: ['Aplicação em reserva', FORA, 'fixo'] },
+  { re: /^aporte\b/i, receita: ['Aporte de sócios', FORA], despesa: ['Devolução de aporte a sócios', FORA, 'fixo'] },
 ];
 // Categorias em que a descrição do Conta Azul é o nome do cliente/fornecedor (quando a coluna própria veio vazia).
 const DESCRICAO_E_CONTATO = new Set(['Receitas de Serviços', 'Receitas de Vendas', 'Remuneração de Autônomos', 'Remuneração de Estagiários', 'Pró-labore', 'Plataforma', 'Software / Licença de Uso', 'Comissões de Vendedores']);

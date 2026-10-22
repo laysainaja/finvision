@@ -345,3 +345,19 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
   .grid-4, .grid-3, .grid-2, .form-grid { grid-template-columns: 1fr; }
   .topbar .empresa-select { min-width: 0; flex: 1; }
 }
+
+/* Conciliação: um banco por aba */
+.bancos-abas { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
+.banco-aba { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 190px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.banco-aba:hover { border-color: var(--primary); }
+.banco-aba:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.banco-aba.ativo { border: 2px solid var(--primary); background: var(--primary-soft); padding: 9px 13px; }
+.banco-aba-nome { font-weight: 650; }
+.banco-aba-rodape { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.destaque-conta { color: var(--primary); }
+
+/* Análises: clicar para ver os lançamentos */
+.clicavel { cursor: pointer; }
+.barra-h.clicavel:hover .barra-h-nome, td.clicavel:hover { color: var(--primary); text-decoration: underline; }
+.link-botao { all: unset; cursor: pointer; color: var(--primary); font-weight: 600; }
+.link-botao:hover, .link-botao:focus-visible { text-decoration: underline; }
