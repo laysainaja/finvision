@@ -4,6 +4,7 @@ import { useEmpresa } from '../lib/empresa';
 import { addMeses, brl, dataBR, fimMes, hoje, inicioMes } from '../lib/format';
 import { NOME_TIPO_RECEITA, type ItemExtrato, type Lancamento, type Movimentacoes, type SituacaoExtrato, type TipoLancamento } from '../types';
 import { Icon, useAcao } from '../components/ui';
+import { exportarCSV } from '../lib/exportar';
 import { BaixaModal, LancamentoForm } from '../components/LancamentoForms';
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -49,7 +50,7 @@ function MenuAcoes({ itens }: { itens: { label: string; onClick: () => void; per
 }
 
 export function Extrato() {
-  const { base, versao, recarregar, contas, categorias } = useEmpresa();
+  const { base, versao, recarregar, contas, categorias, empresa } = useEmpresa();
   const acao = useAcao();
 
   const [mes, setMes] = useState(inicioMes(hoje()));
@@ -120,6 +121,42 @@ export function Extrato() {
     if (!confirm(`Excluir "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}?`)) return;
     if (await acao(() => api.del(`${base}/lancamentos/${i.id}`), 'Lançamento excluído.')) recarregar();
   };
+  // Exporta exatamente o que está na tela (período e filtros), no modelo aprovado: saldo anterior, movimentos, totais.
+  const exportar = () => {
+    if (!data) return;
+    const nomeConta = conta ? contas.find((c) => String(c.id) === conta)?.nome ?? '' : 'todas';
+    const filtros = [
+      tipo && (tipo === 'receita' ? 'só receitas' : 'só despesas'),
+      situacao && { em_aberto: 'em aberto', aberto: 'a vencer', vencido: 'vencidos', realizado: 'realizados' }[situacao],
+      categoria && `categoria ${categorias.find((c) => String(c.id) === categoria)?.nome ?? ''}`,
+      q && `busca "${q}"`,
+    ].filter(Boolean).join(', ') || 'nenhum';
+    const linhas: (string | number | null)[][] = [
+      [dataBR(de), 'Saldo anterior', null, null, null, null, null, null, null, data.saldo_inicial],
+      ...itens.map((i) => [
+        dataBR(i.data), i.descricao, i.contato, i.categoria_nome ?? 'Sem categoria', i.conta_nome,
+        i.tipo_receita ? NOME_TIPO_RECEITA[i.tipo_receita] : null, SITUACAO[i.situacao].label, dataBR(i.vencimento), i.valor_extrato, i.saldo,
+      ]),
+      [],
+      ['Receitas em aberto', null, null, null, null, null, null, null, data.resumo.receitas_aberto, null],
+      ['Receitas realizadas', null, null, null, null, null, null, null, data.resumo.receitas_realizadas, null],
+      ['Despesas em aberto', null, null, null, null, null, null, null, -data.resumo.despesas_aberto, null],
+      ['Despesas realizadas', null, null, null, null, null, null, null, -data.resumo.despesas_realizadas, null],
+      ['Total do período', null, null, null, null, null, null, null, data.resumo.total_periodo, null],
+      ['Saldo final (realizado)', null, null, null, null, null, null, null, null, data.saldo_final],
+    ];
+    const periodoNome = personalizado ? `${de} a ${ate}` : mes.slice(0, 7);
+    exportarCSV(
+      `Extrato de movimentações - ${empresa?.nome ?? ''} - ${periodoNome}`,
+      ['Data', 'Descrição', 'Cliente / Fornecedor', 'Categoria', 'Conta', 'Tipo de receita', 'Situação', 'Vencimento', 'Valor (R$)', 'Saldo (R$)'],
+      linhas,
+      [
+        `Extrato de movimentações · ${empresa?.nome ?? ''}`,
+        `Período: ${dataBR(de)} a ${dataBR(ate)} · Conta: ${nomeConta} · Filtros: ${filtros} · Gerado em ${dataBR(hoje())}`,
+      ],
+    );
+  };
+
   const alternar = (id: number) =>
     setSelecionados((s) => {
       const n = new Set(s);
@@ -180,6 +217,9 @@ export function Extrato() {
             <Icon name="filtro" /> Mais filtros
           </button>
           {filtrosAtivos > 0 && <button className="btn btn-ghost btn-sm" onClick={limpar}>Limpar filtros ({filtrosAtivos})</button>}
+          <button className="btn" onClick={exportar} disabled={!data} title="Baixa o que está na tela (período e filtros) em planilha">
+            <Icon name="upload" /> Exportar planilha
+          </button>
         </div>
         {maisFiltros && (
           <div className="toolbar filtros-extra">

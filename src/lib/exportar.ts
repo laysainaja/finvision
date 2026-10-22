@@ -1,12 +1,14 @@
-/** Baixa uma planilha CSV que o Excel abre direto em português (separador ";", vírgula decimal, acentos ok). */
-export function exportarCSV(nomeArquivo: string, cabecalho: string[], linhas: (string | number | null)[][]) {
+/** Baixa uma planilha CSV que o Excel abre direto em português (separador ";", vírgula decimal, acentos ok).
+ *  Números são centavos. `preambulo` são linhas de título antes da tabela (ex.: empresa e período). */
+export function exportarCSV(nomeArquivo: string, cabecalho: string[], linhas: (string | number | null)[][], preambulo: string[] = []) {
   const celula = (v: string | number | null) => {
     if (v === null || v === undefined) return '';
     if (typeof v === 'number') return (v / 100).toFixed(2).replace('.', ',');
     const s = String(v);
     return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const csv = [cabecalho, ...linhas].map((l) => l.map(celula).join(';')).join('\r\n');
+  const topo = preambulo.length ? [...preambulo.map((p) => celula(p)), ''] : [];
+  const csv = [...topo, ...[cabecalho, ...linhas].map((l) => l.map(celula).join(';'))].join('\r\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
