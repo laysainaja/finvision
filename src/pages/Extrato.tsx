@@ -5,7 +5,7 @@ import { brl, dataBR, hoje } from '../lib/format';
 import { NOME_TIPO_RECEITA, type ItemExtrato, type Lancamento, type Movimentacoes, type SituacaoExtrato, type TipoLancamento } from '../types';
 import { Icon, useAcao } from '../components/ui';
 import { exportarCSV } from '../lib/exportar';
-import { BaixaModal, LancamentoForm } from '../components/LancamentoForms';
+import { BaixaModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
 import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
 
 const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
@@ -73,6 +73,7 @@ export function Extrato() {
   const [novo, setNovo] = useState<{ tipo: TipoLancamento; lancamento?: Lancamento } | null>(null);
   const [baixa, setBaixa] = useState<ItemExtrato[] | null>(null);
   const [menuNovo, setMenuNovo] = useState(false);
+  const [transferir, setTransferir] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(busca), 300);
@@ -117,7 +118,10 @@ export function Extrato() {
     if (await acao(() => api.post(`${base}/lancamentos/${i.id}/estorno`), 'Lançamento estornado.')) recarregar();
   };
   const excluir = async (i: ItemExtrato) => {
-    if (!confirm(`Excluir "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}?`)) return;
+    const msg = i.transferencia_id
+      ? `Excluir a transferência "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}? A saída e a entrada nas duas contas serão excluídas.`
+      : `Excluir "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}?`;
+    if (!confirm(msg)) return;
     if (await acao(() => api.del(`${base}/lancamentos/${i.id}`), 'Lançamento excluído.')) recarregar();
   };
   // Exporta exatamente o que está na tela (período e filtros), no modelo aprovado: saldo anterior, movimentos, totais.
@@ -194,6 +198,9 @@ export function Extrato() {
               </button>
               <button role="menuitem" onClick={() => (setMenuNovo(false), setNovo({ tipo: 'pagar' }))}>
                 <span className="saida">●</span> Despesa
+              </button>
+              <button role="menuitem" onClick={() => (setMenuNovo(false), setTransferir(true))}>
+                <span className="muted">⇄</span> Transferência entre contas
               </button>
             </div>
           )}
@@ -300,7 +307,7 @@ export function Extrato() {
               )}
               {paginaItens.map((i) => {
                 const pago = !!i.data_pagamento;
-                const acoes = [
+                const acoes = i.transferencia_id ? [{ label: 'Excluir transferência', onClick: () => excluir(i), perigo: true }] : [
                   ...(!pago ? [{ label: i.tipo === 'receber' ? 'Receber' : 'Pagar', onClick: () => setBaixa([i]) }] : []),
                   { label: 'Editar', onClick: () => editar(i) },
                   ...(pago ? [{ label: 'Estornar', onClick: () => estornar(i) }] : []),
@@ -316,6 +323,7 @@ export function Extrato() {
                         {i.total_parcelas && <span className="muted small"> · {i.parcela}/{i.total_parcelas}</span>}
                       </div>
                       <div className="desc-sub">
+                        {i.transferencia_id && <span className="tag-receita tag-transferencia">Transferência</span>}
                         {i.tipo_receita && <span className={'tag-receita tag-' + i.tipo_receita}>{NOME_TIPO_RECEITA[i.tipo_receita]}</span>}
                         {[i.categoria_nome ?? 'Sem categoria', i.contato, !conta && i.conta_nome].filter(Boolean).join(' · ')}
                         {i.extrato_id && ' · ✓ conciliado'}
@@ -365,6 +373,7 @@ export function Extrato() {
       </p>
 
       {novo && <LancamentoForm tipo={novo.tipo} lancamento={novo.lancamento} onClose={() => setNovo(null)} onSaved={concluir} />}
+      {transferir && <TransferenciaModal onClose={() => setTransferir(false)} onSaved={() => (setTransferir(false), recarregar())} />}
       {baixa && <BaixaModal lancamentos={baixa as unknown as Lancamento[]} onClose={() => setBaixa(null)} onSaved={concluir} />}
     </>
   );

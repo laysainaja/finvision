@@ -112,6 +112,7 @@ export interface ItemExtrato {
   conta_bancaria_id: number | null;
   conta_nome: string | null;
   extrato_id: number | null;
+  transferencia_id: string | null;
   situacao: SituacaoExtrato;
   valor_extrato: number;
   saldo: number | null;

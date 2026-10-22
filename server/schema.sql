@@ -189,6 +189,10 @@ alter table lancamentos add column if not exists multa bigint not null default 0
 alter table lancamentos add column if not exists desconto bigint not null default 0;
 alter table lancamentos add column if not exists restante_de bigint references lancamentos(id) on delete set null;
 
+-- Transferência entre contas próprias: duas pernas (saída numa conta, entrada na outra) com o mesmo transferencia_id.
+alter table lancamentos add column if not exists transferencia_id uuid;
+create index if not exists ix_lanc_transferencia on lancamentos (transferencia_id) where transferencia_id is not null;
+
 -- Valores do Forecast informados à mão por mês (ex.: clientes totais, quando o cliente paga adiantado).
 create table if not exists forecast_ajustes (
   empresa_id bigint not null references empresas(id) on delete cascade,

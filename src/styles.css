@@ -367,3 +367,4 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
 .th-ordem span { font-size: 11px; color: var(--text-3); }
 .th-ordem.ativo, .th-ordem.ativo span { color: var(--primary); }
 .th-ordem:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+.tag-transferencia { background: var(--surface-2); color: var(--text-2); }

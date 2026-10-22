@@ -377,14 +377,14 @@ async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo, descricao
 
 const INSERT_LANC = `INSERT INTO lancamentos
   (empresa_id, tipo, descricao, contato, contato_id, tipo_receita, categoria_id, conta_bancaria_id, valor, vencimento, documento, observacao,
-   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas, restante_de)
+   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas, restante_de, transferencia_id)
   VALUES (:empresa_id, :tipo, :descricao, :contato, :contato_id, :tipo_receita, :categoria_id, :conta_bancaria_id, :valor, :vencimento, :documento, :observacao,
-   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas, :restante_de)
+   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas, :restante_de, :transferencia_id)
   RETURNING id`;
 
 export async function inserirLancamento(l) {
   const r = await get(INSERT_LANC, {
-    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null, restante_de: null,
+    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null, restante_de: null, transferencia_id: null,
     ...l,
   });
   return r.id;
@@ -436,8 +436,44 @@ e.post('/lancamentos', async (req, res) => {
   res.status(201).json({ ids });
 });
 
+// ---------- Transferência entre contas ----------
+// Sai de uma conta e entra na outra no mesmo dia: duas pernas já pagas, em categorias "fora do resultado"
+// (mexe no saldo de cada conta, não entra na DRE nem no Forecast). Excluir uma perna exclui as duas.
+async function categoriaTransferencia(eid, tipo) {
+  const nome = tipo === 'receita' ? 'Transferência de Entrada' : 'Transferência de Saída';
+  const existente = await get(`SELECT id FROM categorias WHERE empresa_id = :eid AND tipo = :tipo AND lower(nome) = lower(:nome)`, { eid, tipo, nome });
+  if (existente) return existente.id;
+  return (await get(
+    `INSERT INTO categorias (empresa_id, nome, tipo, dre, grupo_forecast) VALUES (:eid, :nome, :tipo, 'fora_resultado', :grupo) RETURNING id`,
+    { eid, nome, tipo, grupo: tipo === 'despesa' ? 'fixo' : null },
+  )).id;
+}
+
+e.post('/transferencias', async (req, res) => {
+  const origem = optId(req.body.conta_origem_id);
+  const destino = optId(req.body.conta_destino_id);
+  check(origem && destino, 'Escolha a conta de origem e a de destino.');
+  check(origem !== destino, 'A conta de origem e a de destino precisam ser diferentes.');
+  await pertence('contas_bancarias', origem, req.eid);
+  await pertence('contas_bancarias', destino, req.eid);
+  check(isDate(req.body.data), 'Data inválida.');
+  check(isCents(req.body.valor) && req.body.valor > 0, 'Valor inválido.');
+  const descricao = optText(req.body.descricao) ?? 'Transferência entre contas';
+  const id = randomUUID();
+  await transaction(async () => {
+    const base = {
+      empresa_id: req.eid, descricao, valor: req.body.valor, vencimento: req.body.data, data_pagamento: req.body.data, valor_pago: req.body.valor,
+      origem_baixa: 'manual', documento: null, observacao: optText(req.body.observacao), contato: null, transferencia_id: id,
+    };
+    await inserirLancamento({ ...base, tipo: 'pagar', conta_bancaria_id: origem, categoria_id: await categoriaTransferencia(req.eid, 'despesa') });
+    await inserirLancamento({ ...base, tipo: 'receber', conta_bancaria_id: destino, categoria_id: await categoriaTransferencia(req.eid, 'receita') });
+  });
+  res.status(201).json({ transferencia_id: id });
+});
+
 e.put('/lancamentos/:id', async (req, res) => {
   const atual = await buscarLancamento(req.params.id, req.eid);
+  check(!atual.transferencia_id, 'Transferência não se edita: exclua e lance de novo.');
   const { tipo, ...l } = await lerLancamento({ ...req.body, tipo: atual.tipo }, req.eid);
   if (atual.data_pagamento) check(l.conta_bancaria_id, 'Lançamento pago precisa de conta bancária.');
   // Sem escolha explícita, mantém o tipo de receita que já estava.
@@ -457,6 +493,7 @@ e.delete('/lancamentos/:id', async (req, res) => {
   const escopo = req.query.escopo; // 'grupo' apaga também as parcelas em aberto do mesmo grupo
   await transaction(async () => {
     await all('DELETE FROM lancamentos WHERE id = :id', { id: atual.id });
+    if (atual.transferencia_id) await all('DELETE FROM lancamentos WHERE transferencia_id = :t AND empresa_id = :eid', { t: atual.transferencia_id, eid: req.eid });
     if (escopo === 'grupo' && atual.grupo_parcelas) {
       await all('DELETE FROM lancamentos WHERE grupo_parcelas = :g AND empresa_id = :eid AND data_pagamento IS NULL', { g: atual.grupo_parcelas, eid: req.eid });
     }
@@ -523,6 +560,7 @@ e.post('/lancamentos/:id/baixa', async (req, res) => {
 e.post('/lancamentos/:id/estorno', async (req, res) => {
   const l = await buscarLancamento(req.params.id, req.eid);
   check(l.data_pagamento, 'Este lançamento não está pago.', 409);
+  check(!l.transferencia_id, 'Transferência não tem estorno: exclua e lance de novo.');
   await transaction(async () => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE lancamento_id = :id', { id: l.id });
     // Pagamento parcial: o restante que ainda está em aberto volta para este lançamento.

@@ -321,3 +321,49 @@ export function BaixaModal({ lancamentos, onClose, onSaved }: { lancamentos: Lan
     </Modal>
   );
 }
+
+/** Transferência entre contas próprias: sai de uma, entra na outra, no mesmo dia. Não é receita nem despesa. */
+export function TransferenciaModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { base, contas } = useEmpresa();
+  const toast = useToast();
+  const ativas = contas.filter((c) => c.ativa);
+  const [data, setData] = useState(hoje());
+  const [valor, setValor] = useState(0);
+  const [origem, setOrigem] = useState<number | ''>(ativas[0]?.id ?? '');
+  const [destino, setDestino] = useState<number | ''>(ativas[1]?.id ?? '');
+  const [descricao, setDescricao] = useState('');
+  const { salvando, erro, salvar } = useSalvar();
+  const nome = (id: number | '') => ativas.find((c) => c.id === id)?.nome ?? '';
+
+  const enviar = async () => {
+    const ok = await salvar(() => api.post(`${base}/transferencias`, { data, valor, conta_origem_id: origem || null, conta_destino_id: destino || null, descricao: descricao || null }));
+    if (ok) {
+      toast(`Transferência de ${brl(valor)}: ${nome(origem)} → ${nome(destino)}.`);
+      onSaved();
+    }
+  };
+  const opcoes = ativas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>);
+
+  return (
+    <Modal titulo="Nova transferência entre contas" onClose={onClose}
+      rodape={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={enviar} disabled={salvando || !valor || !origem || !destino || origem === destino}>Transferir</button></>}>
+      {erro && <div className="erro-box">{erro}</div>}
+      {ativas.length < 2 && <div className="aviso-box">É preciso ter pelo menos duas contas bancárias ativas. Cadastre em Configurações → Empresa, contas e categorias.</div>}
+      <div className="form-grid">
+        <Field label="Sai da conta">
+          <select className="select input" value={origem} onChange={(e) => setOrigem(e.target.value === '' ? '' : Number(e.target.value))}><option value="">Selecione…</option>{opcoes}</select>
+        </Field>
+        <Field label="Entra na conta">
+          <select className="select input" value={destino} onChange={(e) => setDestino(e.target.value === '' ? '' : Number(e.target.value))}><option value="">Selecione…</option>{opcoes}</select>
+        </Field>
+        <Field label="Data"><input className="input" type="date" value={data} onChange={(e) => setData(e.target.value)} /></Field>
+        <Field label="Valor"><MoneyInput value={valor} onChange={setValor} /></Field>
+        <Field label="Descrição (opcional)" className="full">
+          <input className="input" placeholder="Transferência entre contas" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+        </Field>
+      </div>
+      {origem !== '' && origem === destino && <div className="small alerta">Escolha contas diferentes.</div>}
+      <div className="muted small">Mexe no saldo das duas contas, mas não entra na DRE, nas análises nem no Forecast.</div>
+    </Modal>
+  );
+}
