@@ -74,15 +74,16 @@ const palavras = (s) =>
       .filter((w) => w.length >= 4),
   );
 
+const MESMO_MES_SQL = `date_trunc('month', COALESCE(l.data_pagamento, l.vencimento)) = date_trunc('month', :data::date)`;
+const mesDe = (d) => d.slice(0, 7);
+
 // Pontua candidatos por valor (peso maior), proximidade de data e semelhança do texto.
 async function sugestoes(item, eid, q) {
   const tipo = item.valor > 0 ? 'receber' : 'pagar';
   const valorItem = Math.abs(item.valor);
   const p = { eid, tipo, conta: item.conta_bancaria_id, hoje: hoje(), data: item.data, q: `%${q}%` };
-  // Com busca por texto, ignora a janela de datas: o usuário está procurando um lançamento específico.
-  const filtro = q
-    ? 'AND (l.descricao ILIKE :q OR l.contato ILIKE :q OR l.documento ILIKE :q)'
-    : 'AND COALESCE(l.data_pagamento, l.vencimento) BETWEEN :data::date - 60 AND :data::date + 60';
+  // Só lançamentos do mesmo mês do movimento (pela data do pagamento, ou do vencimento se em aberto), com ou sem busca.
+  const filtro = `AND ${MESMO_MES_SQL} ${q ? 'AND (l.descricao ILIKE :q OR l.contato ILIKE :q OR l.documento ILIKE :q)' : ''}`;
 
   const candidatos = await all(
     `SELECT l.*, ${STATUS_SQL} AS status FROM lancamentos l
@@ -123,6 +124,9 @@ async function conciliar(item, lancamentoId, eid) {
   const l = await buscarLancamento(lancamentoId, eid);
   check(l.tipo === (item.valor > 0 ? 'receber' : 'pagar'), 'Entradas só conciliam com contas a receber, e saídas com contas a pagar.');
   check(!l.extrato_id, 'Este lançamento já está conciliado com outro item do extrato.', 409);
+  const dataLanc = l.data_pagamento ?? l.vencimento;
+  check(mesDe(dataLanc) === mesDe(item.data),
+    `Este lançamento é de ${dataLanc.split('-').reverse().join('/')}, outro mês. A conciliação só aceita lançamentos do mesmo mês do movimento do banco.`);
   if (l.data_pagamento) {
     check(l.conta_bancaria_id === item.conta_bancaria_id, 'Este lançamento foi pago por outra conta bancária.');
   } else {

@@ -250,7 +250,7 @@ function PainelItem({ item }: { item: ExtratoItem }) {
             <div>
               <h3 style={{ marginBottom: 8 }}>Sugestões de {entrada ? 'contas a receber' : 'contas a pagar'}</h3>
               <div style={{ position: 'relative', marginBottom: 10 }}>
-                <input className="input" style={{ width: '100%' }} placeholder="Buscar outro lançamento por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+                <input className="input" style={{ width: '100%' }} placeholder="Buscar outro lançamento do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} />
               </div>
               <div className="lista">
                 {sugestoes.data?.map((s, idx) => (
@@ -276,7 +276,7 @@ function PainelItem({ item }: { item: ExtratoItem }) {
                 ))}
                 {sugestoes.data?.length === 0 && (
                   <div className="muted small">
-                    {q ? 'Nada encontrado com essa busca.' : 'Nenhum lançamento com valor e data parecidos. Busque acima ou crie um novo lançamento.'}
+                    {q ? 'Nada encontrado com essa busca neste mês.' : 'Nenhum lançamento deste mês com valor e data parecidos. Busque acima ou crie um novo lançamento.'}
                   </div>
                 )}
               </div>
