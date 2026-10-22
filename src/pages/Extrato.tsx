@@ -7,6 +7,7 @@ import { Icon, useAcao } from '../components/ui';
 import { exportarCSV } from '../lib/exportar';
 import { BaixaModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
 import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
+import { FiltroCategorias, SEM_CATEGORIA } from '../components/FiltroCategorias';
 
 const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
   recebido: { label: 'Recebido', classe: 'badge-pago' },
@@ -60,7 +61,7 @@ export function Extrato() {
   const [conta, setConta] = useState('');
   const [tipo, setTipo] = useState<Tipo>('');
   const [situacao, setSituacao] = useState<Situacao>('');
-  const [categoria, setCategoria] = useState('');
+  const [ocultas, setOcultas] = useState<Set<number>>(new Set());
   const [maisFiltros, setMaisFiltros] = useState(false);
   const [pagina, setPagina] = useState(0);
   const [porPagina, setPorPagina] = useState(lerPorPagina);
@@ -81,7 +82,7 @@ export function Extrato() {
   }, [busca]);
 
   const { data, erro } = useApi<Movimentacoes>(
-    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, tipo, situacao, categoria_id: categoria, v: versao })}`,
+    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, tipo, situacao, ocultar_categorias: [...ocultas].sort().join(','), v: versao })}`,
   );
   useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
 
@@ -90,7 +91,7 @@ export function Extrato() {
   const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina));
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
-  const filtrosAtivos = [q, conta, tipo, situacao, categoria].filter(Boolean).length;
+  const filtrosAtivos = [q, conta, tipo, situacao].filter(Boolean).length + (ocultas.size ? 1 : 0);
 
   const atalho = (t: Tipo, s: Situacao) => {
     const mesmo = tipo === t && situacao === s;
@@ -102,7 +103,7 @@ export function Extrato() {
     setConta('');
     setTipo('');
     setSituacao('');
-    setCategoria('');
+    setOcultas(new Set());
   };
   const concluir = () => {
     setNovo(null);
@@ -131,7 +132,7 @@ export function Extrato() {
     const filtros = [
       tipo && (tipo === 'receita' ? 'só receitas' : 'só despesas'),
       situacao && { em_aberto: 'em aberto', aberto: 'a vencer', vencido: 'vencidos', realizado: 'realizados' }[situacao],
-      categoria && `categoria ${categorias.find((c) => String(c.id) === categoria)?.nome ?? ''}`,
+      ocultas.size > 0 && `sem as categorias ${[...ocultas].map((id) => id === SEM_CATEGORIA ? 'Sem categoria' : categorias.find((c) => c.id === id)?.nome ?? '').join(', ')}`,
       q && `busca "${q}"`,
     ].filter(Boolean).join(', ') || 'nenhum';
     const linhas: (string | number | null)[][] = [
@@ -241,13 +242,9 @@ export function Extrato() {
                 <option value="realizado">Realizados (pagos/recebidos)</option>
               </select>
             </label>
-            <label className="field-inline">Categoria
-              <select className="select input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                <option value="">Todas</option>
-                <optgroup label="Receitas">{categorias.filter((c) => c.tipo === 'receita').map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</optgroup>
-                <optgroup label="Despesas">{categorias.filter((c) => c.tipo === 'despesa').map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</optgroup>
-              </select>
-            </label>
+            <div className="field-inline">Categorias
+              <FiltroCategorias categorias={categorias} ocultas={ocultas} onChange={setOcultas} />
+            </div>
           </div>
         )}
 

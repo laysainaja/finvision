@@ -12,7 +12,8 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
   const ate = isDate(req.query.ate) ? req.query.ate : addDays(addMonths(de.slice(0, 8) + '01', 1), -1);
   check(de <= ate, 'A data inicial deve ser anterior à final.');
   const contaId = optId(req.query.conta_id);
-  const categoriaId = optId(req.query.categoria_id);
+  // Categorias desmarcadas no filtro (0 = sem categoria). Vazio = todas.
+  const ocultas = new Set(String(req.query.ocultar_categorias ?? '').split(',').filter((x) => /^\d+$/.test(x)).map(Number));
   const q = optText(req.query.q);
   const tipo = ['receita', 'despesa'].includes(req.query.tipo) ? req.query.tipo : null;
   const situacao = ['aberto', 'vencido', 'realizado', 'em_aberto'].includes(req.query.situacao) ? req.query.situacao : null;
@@ -63,7 +64,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     const sit = pago ? (receita ? 'recebido' : 'pago') : l.vencimento < h ? 'vencido' : 'aberto';
     if (pago) saldo += receita ? valor : -valor;
 
-    if (categoriaId && l.categoria_id !== categoriaId) continue;
+    if (ocultas.has(l.categoria_id ?? 0)) continue;
     if (termo && ![l.descricao, l.contato, l.documento, l.categoria_nome].some((t) => normalizar(t).includes(termo))) continue;
     // Os cartões somam o período com busca/conta/categoria, mas sem o filtro de tipo e situação,
     // para que funcionem como atalhos de filtro.

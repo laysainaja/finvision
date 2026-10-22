@@ -449,26 +449,30 @@ async function categoriaTransferencia(eid, tipo) {
   )).id;
 }
 
-e.post('/transferencias', async (req, res) => {
-  const origem = optId(req.body.conta_origem_id);
-  const destino = optId(req.body.conta_destino_id);
+/** Cria as duas pernas (chame dentro de uma transação). Devolve o id da transferência e o de cada perna. */
+export async function criarTransferencia(eid, { origem, destino, data, valor, descricao, observacao = null }) {
   check(origem && destino, 'Escolha a conta de origem e a de destino.');
   check(origem !== destino, 'A conta de origem e a de destino precisam ser diferentes.');
-  await pertence('contas_bancarias', origem, req.eid);
-  await pertence('contas_bancarias', destino, req.eid);
-  check(isDate(req.body.data), 'Data inválida.');
-  check(isCents(req.body.valor) && req.body.valor > 0, 'Valor inválido.');
-  const descricao = optText(req.body.descricao) ?? 'Transferência entre contas';
+  await pertence('contas_bancarias', origem, eid);
+  await pertence('contas_bancarias', destino, eid);
+  check(isDate(data), 'Data inválida.');
+  check(isCents(valor) && valor > 0, 'Valor inválido.');
   const id = randomUUID();
-  await transaction(async () => {
-    const base = {
-      empresa_id: req.eid, descricao, valor: req.body.valor, vencimento: req.body.data, data_pagamento: req.body.data, valor_pago: req.body.valor,
-      origem_baixa: 'manual', documento: null, observacao: optText(req.body.observacao), contato: null, transferencia_id: id,
-    };
-    await inserirLancamento({ ...base, tipo: 'pagar', conta_bancaria_id: origem, categoria_id: await categoriaTransferencia(req.eid, 'despesa') });
-    await inserirLancamento({ ...base, tipo: 'receber', conta_bancaria_id: destino, categoria_id: await categoriaTransferencia(req.eid, 'receita') });
-  });
-  res.status(201).json({ transferencia_id: id });
+  const base = {
+    empresa_id: eid, descricao: descricao ?? 'Transferência entre contas', valor, vencimento: data, data_pagamento: data, valor_pago: valor,
+    origem_baixa: 'manual', documento: null, observacao, contato: null, transferencia_id: id,
+  };
+  const saida = await inserirLancamento({ ...base, tipo: 'pagar', conta_bancaria_id: origem, categoria_id: await categoriaTransferencia(eid, 'despesa') });
+  const entrada = await inserirLancamento({ ...base, tipo: 'receber', conta_bancaria_id: destino, categoria_id: await categoriaTransferencia(eid, 'receita') });
+  return { id, saida, entrada };
+}
+
+e.post('/transferencias', async (req, res) => {
+  const t = await transaction(() => criarTransferencia(req.eid, {
+    origem: optId(req.body.conta_origem_id), destino: optId(req.body.conta_destino_id), data: req.body.data, valor: req.body.valor,
+    descricao: optText(req.body.descricao), observacao: optText(req.body.observacao),
+  }));
+  res.status(201).json({ transferencia_id: t.id });
 });
 
 e.put('/lancamentos/:id', async (req, res) => {

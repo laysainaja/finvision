@@ -374,3 +374,14 @@ td[data-soma] { cursor: cell; }
 td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 2px var(--primary); }
 .soma-barra { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: center;
   max-width: calc(100vw - 32px); padding: 8px 10px 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); }
+
+/* Filtro de categorias com caixas de seleção */
+.filtro-cat { position: relative; display: inline-block; }
+.filtro-cat-botao { display: inline-flex; align-items: center; gap: 6px; min-width: 150px; justify-content: space-between; cursor: pointer; text-align: left; }
+.filtro-cat-botao.ativo { border-color: var(--primary); color: var(--primary); }
+.filtro-cat-botao svg { width: 14px; height: 14px; }
+.filtro-cat-menu { left: 0; right: auto; min-width: 260px; max-height: 360px; overflow-y: auto; padding: 6px 10px; gap: 2px; }
+.filtro-cat-item { padding: 4px 0; font-weight: 400; }
+.filtro-cat-item.forte { font-weight: 650; }
+.filtro-cat-grupo { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.filtro-cat-grupo .filtro-cat-item:not(.forte) { padding-left: 22px; }

@@ -1,7 +1,7 @@
 import express from 'express';
 import { all, get, transaction, hoje, STATUS_SQL } from './db.js';
 import { check, isDate, isCents, optText, optId, idParam, diffDays, pgArray } from './util.js';
-import { pertence, inserirLancamento, buscarLancamento } from './api.js';
+import { pertence, inserirLancamento, buscarLancamento, criarTransferencia } from './api.js';
 
 export const conciliacaoRouter = express.Router({ mergeParams: true });
 
@@ -192,9 +192,45 @@ conciliacaoRouter.post('/extrato/:id/criar-lancamento', async (req, res) => {
   res.json(await buscarItem(item.id, req.eid));
 });
 
+const CRIADO_DO_EXTRATO = 'Criado a partir do extrato bancário';
+
+// Movimento que é transferência entre contas próprias: cria as duas pernas e concilia esta.
+// Se a outra conta já tem no extrato o movimento contrário (mesmo valor, até 3 dias), concilia aquele também.
+conciliacaoRouter.post('/extrato/:id/criar-transferencia', async (req, res) => {
+  const item = await buscarItem(req.params.id, req.eid);
+  check(!item.lancamento_id && !item.ignorado, 'Este item não está pendente.', 409);
+  const outra = optId(req.body.outra_conta_id);
+  check(outra, 'Escolha a outra conta da transferência.');
+  const saiu = item.valor < 0;
+  const t = await transaction(async () => {
+    const t = await criarTransferencia(req.eid, {
+      origem: saiu ? item.conta_bancaria_id : outra, destino: saiu ? outra : item.conta_bancaria_id, data: item.data, valor: Math.abs(item.valor),
+      descricao: optText(req.body.descricao) ?? item.descricao ?? 'Transferência entre contas', observacao: CRIADO_DO_EXTRATO,
+    });
+    await all('UPDATE extrato_itens SET lancamento_id = :lid WHERE id = :id', { lid: saiu ? t.saida : t.entrada, id: item.id });
+    const par = await get(
+      `SELECT id FROM extrato_itens WHERE empresa_id = :eid AND conta_bancaria_id = :outra AND lancamento_id IS NULL AND ignorado = 0
+         AND valor = :valor AND data BETWEEN (:data::date - 3) AND (:data::date + 3) ORDER BY abs(data - :data::date), id LIMIT 1`,
+      { eid: req.eid, outra, valor: -item.valor, data: item.data },
+    );
+    if (par) await all('UPDATE extrato_itens SET lancamento_id = :lid WHERE id = :id', { lid: saiu ? t.entrada : t.saida, id: par.id });
+    return { ...t, par: !!par };
+  });
+  res.json({ ...(await buscarItem(item.id, req.eid)), outra_conta_conciliada: t.par });
+});
+
 conciliacaoRouter.post('/extrato/:id/desfazer', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
   check(item.lancamento_id, 'Este item não está conciliado.', 409);
+  const lanc = await get('SELECT transferencia_id, observacao FROM lancamentos WHERE id = :id', { id: item.lancamento_id });
+  if (lanc?.transferencia_id) {
+    // Transferência: se nasceu daqui, sai inteira (as duas pernas); se foi lançada à mão, só solta o item.
+    await transaction(async () => {
+      if (lanc.observacao === CRIADO_DO_EXTRATO) await all('DELETE FROM lancamentos WHERE transferencia_id = :t AND empresa_id = :eid', { t: lanc.transferencia_id, eid: req.eid });
+      else await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE id = :id', { id: item.id });
+    });
+    return res.json(await buscarItem(item.id, req.eid));
+  }
   await transaction(async () => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE id = :id', { id: item.id });
     // Só desfaz a baixa se foi a própria conciliação que a fez; baixas manuais continuam valendo.

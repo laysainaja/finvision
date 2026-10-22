@@ -184,8 +184,12 @@ export function Conciliacao() {
 }
 
 function PainelItem({ item }: { item: ExtratoItem }) {
-  const { base, categorias, recarregar } = useEmpresa();
+  const { base, categorias, contas, recarregar } = useEmpresa();
   const acao = useAcao();
+  const toast = useToast();
+  const [modo, setModo] = useState<'lancamento' | 'transferencia'>('lancamento');
+  const outras = contas.filter((c) => c.ativa && c.id !== item.conta_bancaria_id);
+  const [outraConta, setOutraConta] = useState<number | ''>(outras[0]?.id ?? '');
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
   const [criando, setCriando] = useState(false);
@@ -231,7 +235,7 @@ function PainelItem({ item }: { item: ExtratoItem }) {
             <button className="btn" onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/desfazer`), 'Conciliação desfeita.')}>
               <Icon name="desfazer" /> Desfazer conciliação
             </button>
-            <div className="muted small">Se a baixa foi feita pela conciliação, o lançamento volta a ficar em aberto.</div>
+            <div className="muted small">Se a baixa foi feita pela conciliação, o lançamento volta a ficar em aberto. Transferência criada aqui é desfeita inteira (nas duas contas).</div>
           </>
         )}
 
@@ -287,17 +291,33 @@ function PainelItem({ item }: { item: ExtratoItem }) {
                   <button
                     className="btn btn-ghost"
                     onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/ignorar`, { ignorado: true }), 'Item ignorado.')}
-                    title="Para transferências entre contas próprias, estornos do banco etc."
+                    title="Para estornos do banco e outros movimentos que não devem entrar no financeiro."
                   >
                     Ignorar
                   </button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div className="muted small">Útil para tarifas, rendimentos e outros movimentos que só aparecem no banco. O lançamento já nasce pago e conciliado.</div>
+                  <div className="tabs" role="tablist" aria-label="Tipo do movimento">
+                    <button className={'tab' + (modo === 'lancamento' ? ' ativo' : '')} onClick={() => setModo('lancamento')}>{entrada ? 'Receita' : 'Despesa'}</button>
+                    <button className={'tab' + (modo === 'transferencia' ? ' ativo' : '')} onClick={() => setModo('transferencia')}>Transferência entre contas</button>
+                  </div>
+                  <div className="muted small">
+                    {modo === 'lancamento'
+                      ? 'Útil para tarifas, rendimentos e outros movimentos que só aparecem no banco. O lançamento já nasce pago e conciliado.'
+                      : `Dinheiro que ${entrada ? 'veio de' : 'foi para'} outra conta da empresa. Não entra na DRE nem no Forecast; o saldo das duas contas é ajustado.`}
+                  </div>
                   <Field label="Descrição">
                     <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} autoFocus />
                   </Field>
+                  {modo === 'transferencia' ? (
+                    <Field label={entrada ? 'Veio da conta' : 'Foi para a conta'}>
+                      <select className="select input" value={outraConta} onChange={(e) => setOutraConta(e.target.value === '' ? '' : Number(e.target.value))}>
+                        <option value="">Selecione…</option>
+                        {outras.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
+                      </select>
+                    </Field>
+                  ) : (
                   <Field label="Categoria">
                     <select className="select input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                       <option value="">Sem categoria</option>
@@ -306,18 +326,37 @@ function PainelItem({ item }: { item: ExtratoItem }) {
                       ))}
                     </select>
                   </Field>
+                  )}
+                  {modo === 'transferencia' && outras.length === 0 && <div className="small alerta">Cadastre outra conta bancária para registrar transferências.</div>}
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() =>
-                        executar(
-                          () => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null }),
-                          'Lançamento criado e conciliado.',
-                        )
-                      }
-                    >
-                      Criar e conciliar
-                    </button>
+                    {modo === 'lancamento' ? (
+                      <button
+                        className="btn btn-primary"
+                        onClick={() =>
+                          executar(
+                            () => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null }),
+                            'Lançamento criado e conciliado.',
+                          )
+                        }
+                      >
+                        Criar e conciliar
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-primary"
+                        disabled={!outraConta}
+                        onClick={async () => {
+                          const nome = outras.find((c) => c.id === outraConta)?.nome;
+                          const ok = await acao(async () => {
+                            const r = await api.post<{ outra_conta_conciliada: boolean }>(`${base}/extrato/${item.id}/criar-transferencia`, { descricao, outra_conta_id: outraConta });
+                            toast(r.outra_conta_conciliada ? `Transferência conciliada aqui e no extrato da ${nome}.` : `Transferência criada e conciliada. Na ${nome} ela já aparece como paga.`);
+                          });
+                          if (ok) recarregar();
+                        }}
+                      >
+                        Criar transferência e conciliar
+                      </button>
+                    )}
                     <button className="btn" onClick={() => setCriando(false)}>Cancelar</button>
                   </div>
                 </div>
