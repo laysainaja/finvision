@@ -240,6 +240,10 @@ export interface Lancamento {
   observacao: string | null;
   data_pagamento: string | null;
   valor_pago: number | null;
+  juros: number;
+  multa: number;
+  desconto: number;
+  restante_de: number | null;
   origem_baixa: 'manual' | 'conciliacao' | null;
   grupo_parcelas: string | null;
   parcela: number | null;

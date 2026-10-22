@@ -369,14 +369,14 @@ async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo, descricao
 
 const INSERT_LANC = `INSERT INTO lancamentos
   (empresa_id, tipo, descricao, contato, contato_id, tipo_receita, categoria_id, conta_bancaria_id, valor, vencimento, documento, observacao,
-   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas)
+   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas, restante_de)
   VALUES (:empresa_id, :tipo, :descricao, :contato, :contato_id, :tipo_receita, :categoria_id, :conta_bancaria_id, :valor, :vencimento, :documento, :observacao,
-   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas)
+   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas, :restante_de)
   RETURNING id`;
 
 export async function inserirLancamento(l) {
   const r = await get(INSERT_LANC, {
-    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null,
+    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null, restante_de: null,
     ...l,
   });
   return r.id;
@@ -456,16 +456,44 @@ e.delete('/lancamentos/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-async function baixar(l, { data_pagamento, valor_pago, conta_bancaria_id }, eid) {
+/**
+ * Baixa (pagamento/recebimento). Juros, multa e desconto ficam registrados; sem valor pago informado,
+ * paga-se o valor + juros + multa − desconto. Pagamento parcial: o que foi quitado do valor original
+ * (pago − juros − multa + desconto) fica neste lançamento e o restante vira um novo lançamento em aberto.
+ */
+async function baixar(l, { data_pagamento, valor_pago, conta_bancaria_id, juros = 0, multa = 0, desconto = 0, parcial = false, vencimento_restante }, eid) {
   check(!l.data_pagamento, `"${l.descricao}" já está pago.`, 409);
   check(isDate(data_pagamento), 'Data de pagamento inválida.');
   const conta = optId(conta_bancaria_id) ?? l.conta_bancaria_id;
   check(conta, 'Informe a conta bancária.');
   await pertence('contas_bancarias', conta, eid);
-  const valor = valor_pago ?? l.valor;
+  for (const [nome, v] of [['Juros', juros], ['Multa', multa], ['Desconto', desconto]]) check(isCents(v) && v >= 0, `${nome} inválido.`);
+  const valor = valor_pago ?? l.valor + juros + multa - desconto;
   check(isCents(valor) && valor > 0, 'Valor pago inválido.');
-  await all("UPDATE lancamentos SET data_pagamento = :data, valor_pago = :valor, conta_bancaria_id = :conta, origem_baixa = 'manual' WHERE id = :id", {
-    data: data_pagamento, valor, conta, id: l.id,
+
+  if (!parcial) {
+    await all(
+      "UPDATE lancamentos SET data_pagamento = :data, valor_pago = :valor, juros = :juros, multa = :multa, desconto = :desconto, conta_bancaria_id = :conta, origem_baixa = 'manual' WHERE id = :id",
+      { data: data_pagamento, valor, juros, multa, desconto, conta, id: l.id },
+    );
+    return;
+  }
+  const quitado = valor - juros - multa + desconto;
+  check(quitado > 0 && quitado < l.valor, `No pagamento parcial, o valor pago (sem juros e multa) precisa ser menor que ${(l.valor / 100).toFixed(2).replace('.', ',')}.`);
+  const vencRestante = vencimento_restante ?? l.vencimento;
+  check(isDate(vencRestante), 'Vencimento do restante inválido.');
+  await transaction(async () => {
+    await all(
+      `UPDATE lancamentos SET valor = :quitado, data_pagamento = :data, valor_pago = :valor, juros = :juros, multa = :multa, desconto = :desconto,
+         conta_bancaria_id = :conta, origem_baixa = 'manual' WHERE id = :id`,
+      { quitado, data: data_pagamento, valor, juros, multa, desconto, conta, id: l.id },
+    );
+    await inserirLancamento({
+      empresa_id: eid, tipo: l.tipo, descricao: l.descricao, contato: l.contato, contato_id: l.contato_id, tipo_receita: l.tipo_receita,
+      categoria_id: l.categoria_id, conta_bancaria_id: l.conta_bancaria_id, valor: l.valor - quitado, vencimento: vencRestante,
+      documento: l.documento, observacao: [`Restante do pagamento parcial de ${data_pagamento.split('-').reverse().join('/')}`, l.observacao].filter(Boolean).join(' — '),
+      grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id,
+    });
   });
 }
 
@@ -489,7 +517,12 @@ e.post('/lancamentos/:id/estorno', async (req, res) => {
   check(l.data_pagamento, 'Este lançamento não está pago.', 409);
   await transaction(async () => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE lancamento_id = :id', { id: l.id });
-    await all('UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL WHERE id = :id', { id: l.id });
+    // Pagamento parcial: o restante que ainda está em aberto volta para este lançamento.
+    const restante = await get('DELETE FROM lancamentos WHERE restante_de = :id AND data_pagamento IS NULL RETURNING valor', { id: l.id });
+    await all(
+      'UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, juros = 0, multa = 0, desconto = 0, origem_baixa = NULL, valor = valor + :extra WHERE id = :id',
+      { id: l.id, extra: restante?.valor ?? 0 },
+    );
   });
   res.json(await buscarLancamento(l.id, req.eid));
 });

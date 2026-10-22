@@ -215,16 +215,29 @@ export function BaixaModal({ lancamentos, onClose, onSaved }: { lancamentos: Lan
   const tipo = lancamentos[0].tipo;
   const nomes = NOME_TIPO[tipo];
   const [data, setData] = useState(hoje());
-  const [valor, setValor] = useState(unico?.valor ?? 0);
+  const [juros, setJuros] = useState(0);
+  const [multa, setMulta] = useState(0);
+  const [desconto, setDesconto] = useState(0);
+  const [parcial, setParcial] = useState(false);
+  const [pagoManual, setPagoManual] = useState<number | null>(null);
+  const [vencRestante, setVencRestante] = useState(unico?.vencimento ?? hoje());
   const [conta, setConta] = useState<number | ''>(unico?.conta_bancaria_id ?? contas.find((c) => c.ativa)?.id ?? '');
   const { salvando, erro, salvar } = useSalvar();
   const total = lancamentos.reduce((s, l) => s + l.valor, 0);
-  const diferenca = unico ? valor - unico.valor : 0;
+  // Valor pago: original + juros + multa − desconto, a menos que a pessoa digite outro (no parcial, digita quanto pagou agora).
+  const calculado = (unico?.valor ?? 0) + juros + multa - desconto;
+  const valor = pagoManual ?? (parcial ? 0 : calculado);
+  const quitado = valor - juros - multa + desconto; // quanto do valor original foi pago
+  const restante = unico ? unico.valor - quitado : 0;
+  const diferenca = unico && !parcial ? valor - calculado : 0;
 
   const enviar = async () => {
     const ok = await salvar(() =>
       unico
-        ? api.post(`${base}/lancamentos/${unico.id}/baixa`, { data_pagamento: data, valor_pago: valor, conta_bancaria_id: conta || null })
+        ? api.post(`${base}/lancamentos/${unico.id}/baixa`, {
+            data_pagamento: data, valor_pago: valor, conta_bancaria_id: conta || null, juros, multa, desconto,
+            ...(parcial && { parcial: true, vencimento_restante: vencRestante }),
+          })
         : api.post(`${base}/lancamentos/baixa-lote`, { ids: lancamentos.map((l) => l.id), data_pagamento: data, conta_bancaria_id: conta || null }),
     );
     if (ok) {
@@ -240,7 +253,7 @@ export function BaixaModal({ lancamentos, onClose, onSaved }: { lancamentos: Lan
       rodape={
         <>
           <button className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" onClick={enviar} disabled={salvando}>
+          <button className="btn btn-primary" onClick={enviar} disabled={salvando || (parcial && !(quitado > 0 && restante > 0))}>
             Confirmar {nomes.acao.toLowerCase()}
           </button>
         </>
@@ -259,9 +272,23 @@ export function BaixaModal({ lancamentos, onClose, onSaved }: { lancamentos: Lan
           <input className="input" type="date" value={data} onChange={(e) => setData(e.target.value)} autoFocus />
         </Field>
         {unico && (
-          <Field label={`Valor ${nomes.feito.toLowerCase()}`}>
-            <MoneyInput value={valor} onChange={setValor} />
-          </Field>
+          <>
+            <Field label="Juros"><MoneyInput value={juros} onChange={setJuros} /></Field>
+            <Field label="Multa"><MoneyInput value={multa} onChange={setMulta} /></Field>
+            <Field label="Desconto"><MoneyInput value={desconto} onChange={setDesconto} /></Field>
+            <Field label={parcial ? `Valor ${nomes.feito.toLowerCase()} agora` : `Valor ${nomes.feito.toLowerCase()}`}>
+              <MoneyInput value={valor} onChange={setPagoManual} />
+            </Field>
+            <label className="check full">
+              <input type="checkbox" checked={parcial} onChange={(e) => (setParcial(e.target.checked), setPagoManual(null))} />
+              {tipo === 'pagar' ? 'Pagamento parcial (antecipei uma parte; o restante continua a pagar)' : 'Recebimento parcial (o restante continua a receber)'}
+            </label>
+            {parcial && (
+              <Field label="Vencimento do restante">
+                <input className="input" type="date" value={vencRestante} onChange={(e) => setVencRestante(e.target.value)} />
+              </Field>
+            )}
+          </>
         )}
         <Field label="Conta bancária" className="full">
           <select className="select input" value={conta} onChange={(e) => setConta(e.target.value === '' ? '' : Number(e.target.value))}>
@@ -272,9 +299,23 @@ export function BaixaModal({ lancamentos, onClose, onSaved }: { lancamentos: Lan
           </select>
         </Field>
       </div>
-      {diferenca !== 0 && (
+      {unico && !parcial && (juros > 0 || multa > 0 || desconto > 0 || diferenca !== 0) && (
         <div className="muted small">
-          {diferenca > 0 ? 'Acréscimo (juros/multa)' : 'Desconto'} de <b className="num">{brl(Math.abs(diferenca))}</b> em relação ao valor original.
+          Valor original <b className="num">{brl(unico.valor)}</b>
+          {juros > 0 && <> + juros <b className="num">{brl(juros)}</b></>}
+          {multa > 0 && <> + multa <b className="num">{brl(multa)}</b></>}
+          {desconto > 0 && <> − desconto <b className="num">{brl(desconto)}</b></>}
+          {' '}= <b className="num">{brl(calculado)}</b>
+          {diferenca !== 0 && <> · valor {nomes.feito.toLowerCase()} {diferenca > 0 ? 'maior' : 'menor'} em <b className="num">{brl(Math.abs(diferenca))}</b></>}
+        </div>
+      )}
+      {unico && parcial && (
+        <div className={'small ' + (quitado > 0 && restante > 0 ? 'muted' : 'alerta')}>
+          {quitado > 0 && restante > 0 ? (
+            <>Quita <b className="num">{brl(quitado)}</b> do valor original. Fica em aberto <b className="num">{brl(restante)}</b> com vencimento em {dataBR(vencRestante)}.</>
+          ) : (
+            <>Informe quanto foi {nomes.feito.toLowerCase()} agora: precisa ser menor que {brl(unico.valor + juros + multa - desconto)}.</>
+          )}
         </div>
       )}
     </Modal>

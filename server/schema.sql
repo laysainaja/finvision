@@ -183,6 +183,12 @@ update contatos c set tipo = 'ambos' where tipo <> 'ambos'
   and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'receber')
   and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'pagar');
 
+-- Baixa com juros, multa e desconto; pagamento parcial gera um lançamento com o restante (restante_de aponta o original).
+alter table lancamentos add column if not exists juros bigint not null default 0;
+alter table lancamentos add column if not exists multa bigint not null default 0;
+alter table lancamentos add column if not exists desconto bigint not null default 0;
+alter table lancamentos add column if not exists restante_de bigint references lancamentos(id) on delete set null;
+
 -- Valores do Forecast informados à mão por mês (ex.: clientes totais, quando o cliente paga adiantado).
 create table if not exists forecast_ajustes (
   empresa_id bigint not null references empresas(id) on delete cascade,
