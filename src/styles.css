@@ -361,3 +361,9 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
 .barra-h.clicavel:hover .barra-h-nome, td.clicavel:hover { color: var(--primary); text-decoration: underline; }
 .link-botao { all: unset; cursor: pointer; color: var(--primary); font-weight: 600; }
 .link-botao:hover, .link-botao:focus-visible { text-decoration: underline; }
+
+/* Coluna que ordena ao clicar */
+.th-ordem { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; font: inherit; color: inherit; }
+.th-ordem span { font-size: 11px; color: var(--text-3); }
+.th-ordem.ativo, .th-ordem.ativo span { color: var(--primary); }
+.th-ordem:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }

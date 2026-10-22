@@ -17,7 +17,9 @@ const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
 
 type Tipo = '' | 'receita' | 'despesa';
 type Situacao = '' | 'em_aberto' | 'realizado' | 'aberto' | 'vencido';
-const POR_PAGINA = 50;
+const OPCOES_POR_PAGINA = [10, 25, 50, 100];
+const CHAVE_POR_PAGINA = 'finvision:extrato-por-pagina';
+const lerPorPagina = () => { try { const n = Number(localStorage.getItem(CHAVE_POR_PAGINA)); return OPCOES_POR_PAGINA.includes(n) ? n : 50; } catch { return 50; } };
 
 /** Menu de ações de uma linha (abre ao clicar, fecha ao clicar fora). */
 function MenuAcoes({ itens }: { itens: { label: string; onClick: () => void; perigo?: boolean }[] }) {
@@ -61,6 +63,12 @@ export function Extrato() {
   const [categoria, setCategoria] = useState('');
   const [maisFiltros, setMaisFiltros] = useState(false);
   const [pagina, setPagina] = useState(0);
+  const [porPagina, setPorPagina] = useState(lerPorPagina);
+  const mudarPorPagina = (n: number) => {
+    setPorPagina(n);
+    setPagina(0);
+    try { localStorage.setItem(CHAVE_POR_PAGINA, String(n)); } catch { /* sem armazenamento: vale só nesta visita */ }
+  };
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
   const [novo, setNovo] = useState<{ tipo: TipoLancamento; lancamento?: Lancamento } | null>(null);
   const [baixa, setBaixa] = useState<ItemExtrato[] | null>(null);
@@ -77,8 +85,8 @@ export function Extrato() {
   useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
 
   const itens = data?.itens ?? [];
-  const paginaItens = itens.slice(pagina * POR_PAGINA, (pagina + 1) * POR_PAGINA);
-  const totalPaginas = Math.max(1, Math.ceil(itens.length / POR_PAGINA));
+  const paginaItens = itens.slice(pagina * porPagina, (pagina + 1) * porPagina);
+  const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina));
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
   const filtrosAtivos = [q, conta, tipo, situacao, categoria].filter(Boolean).length;
@@ -338,8 +346,14 @@ export function Extrato() {
           {data && itens.length === 0 && <div className="vazio">Nenhuma movimentação neste período{filtrosAtivos ? ' com esses filtros' : ''}.</div>}
           {erro && <div className="vazio alerta">{erro}</div>}
         </div>
-        {totalPaginas > 1 && (
+        {itens.length > OPCOES_POR_PAGINA[0] && (
           <div className="toolbar" style={{ justifyContent: 'flex-end', borderBottom: 0, borderTop: '1px solid var(--border)' }}>
+            <label className="field-inline small muted" style={{ marginRight: 'auto' }}>
+              <select className="select input" value={porPagina} onChange={(e) => mudarPorPagina(Number(e.target.value))} aria-label="Registros por página">
+                {OPCOES_POR_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              Registros por página · {itens.length} no total
+            </label>
             <button className="btn btn-sm" disabled={pagina === 0} onClick={() => setPagina((p) => p - 1)}>Anterior</button>
             <span className="muted small">Página {pagina + 1} de {totalPaginas}</span>
             <button className="btn btn-sm" disabled={pagina >= totalPaginas - 1} onClick={() => setPagina((p) => p + 1)}>Próxima</button>

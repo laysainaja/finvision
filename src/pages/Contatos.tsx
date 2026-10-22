@@ -76,6 +76,21 @@ function Juntar({ origem, todos, onClose, onFeito }: { origem: Contato; todos: C
   );
 }
 
+type Ordem = { campo: 'nome' | 'total_receber' | 'total_pagar' | 'ultimo_movimento'; desc: boolean };
+
+/** Título de coluna que ordena a lista ao clicar (de novo inverte: maior → menor / menor → maior). */
+function ColunaOrdem({ campo, ordem, setOrdem, children, direita }: { campo: Ordem['campo']; ordem: Ordem; setOrdem: (o: Ordem) => void; children: string; direita?: boolean }) {
+  const ativa = ordem.campo === campo;
+  return (
+    <th className={direita ? 'r' : ''} aria-sort={ativa ? (ordem.desc ? 'descending' : 'ascending') : 'none'}>
+      <button className={'th-ordem' + (ativa ? ' ativo' : '')} onClick={() => setOrdem({ campo, desc: ativa ? !ordem.desc : campo !== 'nome' })}
+        title={campo === 'nome' ? 'Ordenar por nome' : 'Ordenar: maior primeiro / menor primeiro'}>
+        {children} <span aria-hidden="true">{ativa ? (ordem.desc ? '▼' : '▲') : '↕'}</span>
+      </button>
+    </th>
+  );
+}
+
 export function Contatos() {
   const { base, versao, recarregar } = useEmpresa();
   const acao = useAcao();
@@ -83,10 +98,16 @@ export function Contatos() {
   const [busca, setBusca] = useState('');
   const [form, setForm] = useState<{ contato?: Contato } | null>(null);
   const [juntar, setJuntar] = useState<Contato | null>(null);
+  const [ordem, setOrdem] = useState<Ordem>({ campo: 'nome', desc: false });
   const todos = useApi<Contato[]>(`${base}/contatos${qs({ v: versao })}`);
   const lista = (todos.data ?? []).filter(
     (c) => (!filtro || c.tipo === filtro || c.tipo === 'ambos') && (!busca || `${c.nome} ${c.documento ?? ''} ${c.email ?? ''}`.toLowerCase().includes(busca.toLowerCase())),
-  );
+  ).sort((a, b) => {
+    const r = ordem.campo === 'nome' ? a.nome.localeCompare(b.nome, 'pt-BR')
+      : ordem.campo === 'ultimo_movimento' ? (a.ultimo_movimento ?? '').localeCompare(b.ultimo_movimento ?? '')
+      : a[ordem.campo] - b[ordem.campo];
+    return ordem.desc ? -r : r;
+  });
   const excluir = async (c: Contato) => {
     if (!confirm(`Excluir o cadastro "${c.nome}"?`)) return;
     if (await acao(() => api.del(`${base}/contatos/${c.id}`), 'Cadastro excluído.')) recarregar();
@@ -114,7 +135,14 @@ export function Contatos() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Nome</th><th>Tipo</th><th>Contato</th><th className="r">Recebido / a receber</th><th className="r">Pago / a pagar</th><th>Último movimento</th><th /></tr>
+              <tr>
+                <ColunaOrdem campo="nome" ordem={ordem} setOrdem={setOrdem}>Nome</ColunaOrdem>
+                <th>Tipo</th><th>Contato</th>
+                <ColunaOrdem campo="total_receber" ordem={ordem} setOrdem={setOrdem} direita>Recebido / a receber</ColunaOrdem>
+                <ColunaOrdem campo="total_pagar" ordem={ordem} setOrdem={setOrdem} direita>Pago / a pagar</ColunaOrdem>
+                <ColunaOrdem campo="ultimo_movimento" ordem={ordem} setOrdem={setOrdem}>Último movimento</ColunaOrdem>
+                <th />
+              </tr>
             </thead>
             <tbody>
               {lista.map((c) => (
