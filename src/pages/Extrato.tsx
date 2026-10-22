@@ -22,23 +22,46 @@ const OPCOES_POR_PAGINA = [10, 25, 50, 100];
 const CHAVE_POR_PAGINA = 'finvision:extrato-por-pagina';
 const lerPorPagina = () => { try { const n = Number(localStorage.getItem(CHAVE_POR_PAGINA)); return OPCOES_POR_PAGINA.includes(n) ? n : 50; } catch { return 50; } };
 
-/** Menu de ações de uma linha (abre ao clicar, fecha ao clicar fora). */
+/**
+ * Menu de ações de uma linha (abre ao clicar, fecha ao clicar fora, rolar a página ou Esc).
+ * Fica "solto" na tela (position: fixed) para não ser cortado pela tabela, e abre para cima se não couber embaixo.
+ */
 function MenuAcoes({ itens }: { itens: { label: string; onClick: () => void; perigo?: boolean }[] }) {
-  const [aberto, setAberto] = useState(false);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const botao = useRef<HTMLButtonElement>(null);
+  const aberto = pos !== null;
+  const abrir = () => {
+    if (aberto) return setPos(null);
+    const r = botao.current!.getBoundingClientRect();
+    const altura = itens.length * 38 + 12; // estimativa do menu
+    const right = window.innerWidth - r.right;
+    setPos(window.innerHeight - r.bottom < altura + 8 && r.top > altura + 8 ? { bottom: window.innerHeight - r.top + 4, right } : { top: r.bottom + 4, right });
+  };
   useEffect(() => {
     if (!aberto) return;
-    const fechar = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setAberto(false);
+    const fechar = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setPos(null);
+    const sair = () => setPos(null);
+    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && setPos(null);
     document.addEventListener('mousedown', fechar);
-    return () => document.removeEventListener('mousedown', fechar);
+    document.addEventListener('keydown', tecla);
+    window.addEventListener('scroll', sair, true);
+    window.addEventListener('resize', sair);
+    return () => {
+      document.removeEventListener('mousedown', fechar);
+      document.removeEventListener('keydown', tecla);
+      window.removeEventListener('scroll', sair, true);
+      window.removeEventListener('resize', sair);
+    };
   }, [aberto]);
+  const setAberto = (v: boolean) => !v && setPos(null);
   return (
     <div className="menu-acoes" ref={ref}>
-      <button className="btn btn-sm" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto}>
+      <button ref={botao} className="btn btn-sm" onClick={abrir} aria-haspopup="menu" aria-expanded={aberto}>
         Ações <Icon name="seta" />
       </button>
       {aberto && (
-        <div className="menu-lista" role="menu">
+        <div className="menu-lista menu-solto" role="menu" style={pos}>
           {itens.map((i) => (
             <button key={i.label} role="menuitem" className={i.perigo ? 'alerta' : ''} onClick={() => (setAberto(false), i.onClick())}>
               {i.label}
