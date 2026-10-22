@@ -132,6 +132,12 @@ function Layout() {
   const temGestao = mostraGestao(empresas);
   const { fechadas, alternar } = useSecoesFechadas();
   const { menuFechado, alternarMenu } = useMenuLateral();
+  // Quem é do escritório entra pela tela do escritório (Gestão), fora de qualquer cliente.
+  const ehEscritorio = empresas.some((e) => e.via_escritorio);
+  const [entradaSemRota] = useState(() => !location.hash.replace(/^#\/?/, ''));
+  useEffect(() => {
+    if (entradaSemRota && ehEscritorio) location.hash = '#/gestao';
+  }, [entradaSemRota, ehEscritorio]);
 
   if (!empresa) {
     if (rota === 'gestao') {
@@ -160,6 +166,38 @@ function Layout() {
 
   const doEscritorio = empresas.filter((e) => e.escritorio_id);
   const avulsas = empresas.filter((e) => !e.escritorio_id);
+
+  // Tela do escritório: própria, sem menu de cliente. Daqui se entra em cada empresa.
+  if (rota === 'gestao' && temGestao) {
+    const nomeEscritorio = doEscritorio[0]?.escritorio_nome;
+    return (
+      <div className="escritorio-shell">
+        <header className="topbar">
+          <div className="brand brand-topo">
+            <div className="brand-logo"><Icon name="fluxo" size={18} /></div>
+            FinVision
+          </div>
+          <span className="badge badge-neutro"><Icon name="predio" size={12} /> {nomeEscritorio ? `Escritório ${nomeEscritorio}` : 'Escritório'}</span>
+          <select className="select input empresa-select" value="" onChange={(e) => {
+            if (e.target.value === 'nova') return setNovaEmpresa(true);
+            setEmpresaId(Number(e.target.value));
+            location.hash = '#/painel';
+          }} aria-label="Abrir empresa">
+            <option value="">Abrir uma empresa…</option>
+            {doEscritorio.length > 0 && <optgroup label="Clientes do escritório">{doEscritorio.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}</optgroup>}
+            {avulsas.length > 0 && <optgroup label="Outras empresas">{avulsas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}</optgroup>}
+            <option value="nova">+ Nova empresa…</option>
+          </select>
+          <span className="muted small" style={{ marginLeft: 'auto' }}>{session?.user.email}</span>
+          <button className="btn btn-sm" onClick={sair}>Sair</button>
+        </header>
+        <main className="content">
+          <Gestao />
+        </main>
+        {novaEmpresa && <EmpresaModal onClose={() => setNovaEmpresa(false)} />}
+      </div>
+    );
+  }
   const menu = montarMenu(empresa.segmento);
   if (temGestao) menu.push({ secao: 'Escritório', icon: 'predio', itens: [{ id: 'gestao', label: 'Gestão', icon: 'predio' }] });
   // Relatório exclusivo de outro segmento (ex.: link antigo): volta para a lista de relatórios.
@@ -204,6 +242,11 @@ function Layout() {
           <button className="btn btn-ghost btn-sm btn-menu" onClick={alternarMenu} aria-label={menuFechado ? 'Abrir o menu' : 'Fechar o menu'} title={menuFechado ? 'Abrir o menu' : 'Fechar o menu'} aria-expanded={!menuFechado}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
           </button>
+          {temGestao && (
+            <a className="btn btn-ghost btn-sm" href="#/gestao" title="Voltar para a tela do escritório (todas as empresas)">
+              <Icon name="predio" size={14} /> Escritório
+            </a>
+          )}
           <select
             className="select input empresa-select"
             value={empresa.id}
@@ -238,8 +281,7 @@ function Layout() {
           {rotaValida === 'cadastros' && <Cadastros />}
           {rotaValida === 'contatos' && <Contatos />}
           {rotaValida === 'relatorios/forecast' && <Forecast />}
-          {rotaValida === 'gestao' && <Gestao />}
-          {rotaValida === 'relatorios' && <RelatoriosInicio />}
+                    {rotaValida === 'relatorios' && <RelatoriosInicio />}
           {rotaValida === 'relatorios/dre' && <DRE />}
           {rotaValida === 'relatorios/margem' && <Margem />}
           {rotaValida === 'relatorios/vencidos' && <Vencidos />}

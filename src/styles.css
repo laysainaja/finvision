@@ -448,3 +448,8 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .escopo-edicao { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; }
 .escopo-edicao legend { font-weight: 600; padding: 0 4px; }
 .escopo-edicao > div { flex-basis: 100%; }
+
+/* Tela do escritório (fora dos clientes) */
+.escritorio-shell { min-height: 100%; display: flex; flex-direction: column; }
+.escritorio-shell .content { max-width: 1400px; margin: 0 auto; }
+.brand-topo { padding: 0; margin: 0 8px 0 0; color: var(--text); font-weight: 700; display: flex; align-items: center; gap: 8px; }
