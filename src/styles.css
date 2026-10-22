@@ -414,3 +414,25 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 @media (max-width: 600px) {
   .tabs { flex-wrap: wrap; max-width: 100%; }
 }
+
+/* Conciliação, aba Todos: um cartão por dia */
+.conc-dias { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 20px; }
+.conc-dia { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.conc-dia-topo { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 1fr auto 28px; gap: 12px; align-items: center; padding: 16px 20px; }
+.conc-dia-topo:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 10px; }
+.conc-dia-data { font-size: 17px; }
+.conc-dia-resumo { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.conc-dia-resumo b { font-size: 16px; }
+.conc-dia-ok { color: var(--text-2); }
+.conc-dia-aviso, .aviso-num { color: var(--aviso, #b7791f); }
+.conc-dia-seta svg { width: 16px; height: 16px; transition: transform .15s; }
+.conc-dia-seta.aberta svg { transform: rotate(180deg); }
+.conc-dia-corpo { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 4px 20px 16px; border-top: 1px solid var(--border); }
+.conc-dia-corpo h3 { margin: 12px 0 8px; }
+.conc-dia-mov { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.conc-dia-total { display: flex; justify-content: space-between; padding-top: 8px; font-weight: 600; }
+@media (max-width: 800px) {
+  .conc-dia-corpo { grid-template-columns: 1fr; }
+  .conc-dia-topo { padding: 14px; grid-template-columns: 1fr 24px; }
+  .conc-dia-resumo { grid-column: 1; align-items: flex-start; }
+}

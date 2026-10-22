@@ -5,6 +5,7 @@ import { brl, dataBR } from '../lib/format';
 import { lerExtrato, type ItemExtrato } from '../lib/extrato';
 import type { ExtratoItem, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
+import { ConciliacaoDias } from '../components/ConciliacaoDias';
 
 type Aba = 'pendente' | 'conciliado' | 'ignorado' | 'todos';
 const POR_VEZ = 15; // linhas por vez (cada uma busca as próprias sugestões)
@@ -27,7 +28,7 @@ export function Conciliacao() {
     if (contaId === '' && ativas[0]) setContaId(ativas[0].id);
   }, [ativas, contaId]);
 
-  const lista = useApi<ExtratoItem[]>(contaId ? `${base}/extrato${qs({ conta_id: contaId, status: aba === 'todos' ? null : aba, v: versao })}` : null);
+  const lista = useApi<ExtratoItem[]>(contaId && aba !== 'todos' ? `${base}/extrato${qs({ conta_id: contaId, status: aba, v: versao })}` : null);
   const itens = lista.data ?? [];
   const conta = contas.find((c) => c.id === contaId);
   // Busca por descrição ou valor ("1326", "1.326,00"...), depois recebimentos/pagamentos.
@@ -135,7 +136,7 @@ export function Conciliacao() {
 
       <div className="card">
         <div className="toolbar">
-          <input className="input grow" placeholder="Pesquise o lançamento bancário (descrição ou valor)" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} />
+          {aba !== 'todos' && <input className="input grow" placeholder="Pesquise o lançamento bancário (descrição ou valor)" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} />}
           <div className="tabs">
             {(
               [
@@ -152,6 +153,8 @@ export function Conciliacao() {
             ))}
           </div>
         </div>
+        {aba === 'todos' && contaId !== '' && <ConciliacaoDias key={contaId} contaId={contaId} contaNome={conta?.nome ?? 'banco'} />}
+        {aba !== 'todos' && <>
         <div className="conc-contadores">
           {(
             [
@@ -182,6 +185,7 @@ export function Conciliacao() {
             <button className="btn" onClick={() => setLimite((l) => l + POR_VEZ)}>Mostrar mais {Math.min(POR_VEZ, visiveis.length - limite)} de {visiveis.length - limite}</button>
           </div>
         )}
+        </>}
       </div>
 
       {importacao && (

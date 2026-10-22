@@ -31,6 +31,50 @@ conciliacaoRouter.get('/extrato', async (req, res) => {
   res.json(await all(`${ITEM_SELECT} WHERE ${where.join(' AND ')} ORDER BY x.data DESC, x.id DESC LIMIT 2000`, p));
 });
 
+// Visão por dia de uma conta: o que veio no extrato do banco e o que está lançado no FinVision (pago nesta conta),
+// conciliado ou lançado à mão. Um dia tem pendência quando sobra movimento do banco sem conciliar.
+conciliacaoRouter.get('/extrato/dias', async (req, res) => {
+  const conta = optId(req.query.conta_id);
+  check(conta, 'Escolha a conta bancária.');
+  await pertence('contas_bancarias', conta, req.eid);
+  check(isDate(req.query.de) && isDate(req.query.ate) && req.query.de <= req.query.ate, 'Período inválido.');
+  const p = { eid: req.eid, conta, de: req.query.de, ate: req.query.ate };
+  const [banco, finvision] = await Promise.all([
+    all(
+      `SELECT x.id, x.data, x.descricao, x.valor, x.lancamento_id, x.ignorado
+       FROM extrato_itens x WHERE x.empresa_id = :eid AND x.conta_bancaria_id = :conta AND x.data BETWEEN :de AND :ate
+       ORDER BY x.data, x.id`,
+      p,
+    ),
+    all(
+      `SELECT l.id, l.data_pagamento AS data, l.tipo, l.descricao, COALESCE(ct.nome, l.contato) AS contato, c.nome AS categoria,
+         CASE WHEN l.tipo = 'receber' THEN l.valor_pago ELSE -l.valor_pago END AS valor, l.transferencia_id IS NOT NULL AS transferencia,
+         EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id) AS conciliado
+       FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
+       WHERE l.empresa_id = :eid AND l.conta_bancaria_id = :conta AND l.data_pagamento BETWEEN :de AND :ate
+       ORDER BY l.data_pagamento, l.id`,
+      p,
+    ),
+  ]);
+  const dias = new Map();
+  const dia = (d) => {
+    if (!dias.has(d)) dias.set(d, { data: d, banco: [], finvision: [], total_banco: 0, total_finvision: 0, pendentes: 0 });
+    return dias.get(d);
+  };
+  for (const x of banco) {
+    const d = dia(x.data);
+    d.banco.push(x);
+    if (!x.ignorado) d.total_banco += x.valor;
+    if (!x.lancamento_id && !x.ignorado) d.pendentes++;
+  }
+  for (const l of finvision) {
+    const d = dia(l.data);
+    d.finvision.push(l);
+    d.total_finvision += l.valor;
+  }
+  res.json([...dias.values()].sort((a, b) => a.data.localeCompare(b.data)));
+});
+
 // Recebe os itens já lidos do OFX/CSV pelo navegador. O FITID evita importar duas vezes a mesma transação.
 conciliacaoRouter.post('/extrato/importar', async (req, res) => {
   const contaId = optId(req.body.conta_bancaria_id);
