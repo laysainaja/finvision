@@ -154,9 +154,9 @@ export function FluxoCaixa() {
                             {rotuloPeriodo(p.inicio, p.fim)}
                             {futuro && <span className="badge badge-neutro" style={{ marginLeft: 8 }}>previsto</span>}
                           </td>
-                          <td className="r num">{ent ? brl(ent) : '—'}</td>
-                          <td className="r num">{sai ? brl(sai) : '—'}</td>
-                          <td className={'r num ' + (ent - sai < 0 ? 'saida' : '')}>{ent || sai ? brl(ent - sai) : '—'}</td>
+                          <td className="r num" data-soma={ent}>{ent ? brl(ent) : '—'}</td>
+                          <td className="r num" data-soma={sai}>{sai ? brl(sai) : '—'}</td>
+                          <td className={'r num ' + (ent - sai < 0 ? 'saida' : '')} data-soma={ent - sai}>{ent || sai ? brl(ent - sai) : '—'}</td>
                           <td className={'r num ' + (p.saldo_final < 0 ? 'alerta' : '')}><b>{brl(p.saldo_final)}</b></td>
                         </tr>
                       );
@@ -196,7 +196,7 @@ export function FluxoCaixa() {
                                   />
                                 </div>
                               </td>
-                              <td className="r num">{brl(v)}</td>
+                              <td className="r num" data-soma={v}>{brl(v)}</td>
                             </tr>
                           );
                         }),

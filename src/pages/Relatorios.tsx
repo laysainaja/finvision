@@ -63,9 +63,9 @@ function BarraFiltros({ periodo, setPeriodo, regime, setRegime, extra, onExporta
 }
 
 const Valor = ({ v, forte }: { v: number; forte?: boolean }) => (
-  <td className={'r num ' + (v < 0 ? 'saida' : '') + (v === 0 ? ' muted' : '')} style={forte ? { fontWeight: 650 } : undefined}>{v === 0 ? '–' : num(v)}</td>
+  <td className={'r num ' + (v < 0 ? 'saida' : '') + (v === 0 ? ' muted' : '')} style={forte ? { fontWeight: 650 } : undefined} data-soma={v} data-formato="moeda">{v === 0 ? '–' : num(v)}</td>
 );
-const Pct = ({ v }: { v: number | null }) => <td className="r num muted small">{v === null ? '' : `${v.toLocaleString('pt-BR')}%`}</td>;
+const Pct = ({ v }: { v: number | null }) => <td className="r num muted small" data-soma={v ?? undefined} data-formato="pct">{v === null ? '' : `${v.toLocaleString('pt-BR')}%`}</td>;
 
 function Cabecalho({ titulo, descricao }: { titulo: string; descricao: string }) {
   return (
@@ -367,7 +367,8 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
                         <Valor v={i.total} forte />
                         <Pct v={i.av} />
                         {data.meses.map((m) => (
-                          <td key={m} className={'r num clicavel' + (i.valores[m] === 0 ? ' muted' : '')} onClick={() => i.valores[m] !== 0 && setDetalhe({ nome: i.nome, mes: m })} title={i.valores[m] ? 'Ver os lançamentos deste mês' : undefined}>
+                          <td key={m} className={'r num clicavel' + (i.valores[m] === 0 ? ' muted' : '')} data-soma={i.valores[m]} data-formato="moeda"
+                            onDoubleClick={() => i.valores[m] !== 0 && setDetalhe({ nome: i.nome, mes: m })} title={i.valores[m] ? 'Clique para somar · clique duas vezes para ver os lançamentos do mês' : undefined}>
                             {i.valores[m] === 0 ? '–' : num(i.valores[m])}
                           </td>
                         ))}
@@ -389,7 +390,7 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
         )}
       </div>
       {detalhe && <DetalheAnalise filtro={{ tipo, agrupar, nome: detalhe.nome, mes: detalhe.mes, de: periodo.de, ate: periodo.ate, regime }} onClose={() => setDetalhe(null)} />}
-      {data && data.itens.length > 0 && <p className="muted small" style={{ margin: 0 }}>Clique numa {agrupar === 'categoria' ? 'categoria' : (tipo === 'receber' ? 'linha de cliente' : 'linha de fornecedor')} (ou no valor de um mês) para ver os lançamentos.</p>}
+      {data && data.itens.length > 0 && <p className="muted small" style={{ margin: 0 }}>Clique no nome de uma {agrupar === 'categoria' ? 'categoria' : (tipo === 'receber' ? 'cliente' : 'fornecedor')} para ver os lançamentos (no valor de um mês: dois cliques). Um clique nos valores vai somando.</p>}
     </>
   );
 }

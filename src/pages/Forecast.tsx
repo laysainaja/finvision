@@ -24,6 +24,9 @@ function formatar(l: LinhaForecast, v: number | null | undefined) {
 const textoCSV = (l: LinhaForecast, v: number | null | undefined) =>
   v === null || v === undefined ? '' : l.formato === 'moeda' ? (v / 100).toFixed(2).replace('.', ',') : l.formato === 'pct' ? `${String(v).replace('.', ',')}%` : String(v).replace('.', ',');
 
+// ROAS soma como número comum na barra de soma.
+const formatoSoma = (l: LinhaForecast) => (l.formato === 'roas' ? 'numero' : l.formato);
+
 const STATUS = { realizado: 'Realizado', atual: 'Mês atual', projecao: 'Projeção' } as const;
 
 export function Forecast() {
@@ -60,11 +63,12 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
       <td className="col-fixa">{l.nome}</td>
       {data!.meses.map((m) => (
         <td key={m.mes} className={classeValor(l, l.valores[m.mes]) + (m.status === 'projecao' ? ' fc-proj' : '') + (l.editavel ? ' fc-editavel' : '') + (l.ajustados?.includes(m.mes) ? ' fc-ajustado' : '')}
-          onClick={l.editavel ? () => editar(l, m.mes) : undefined} title={l.editavel ? (l.ajustados?.includes(m.mes) ? `Informado à mão (calculado: ${l.calculados?.[m.mes] ?? 0}). Clique para mudar.` : 'Clique para informar à mão') : undefined}>
+          data-soma={l.valores[m.mes] ?? undefined} data-formato={formatoSoma(l)}
+          onDoubleClick={l.editavel ? () => editar(l, m.mes) : undefined} title={l.editavel ? (l.ajustados?.includes(m.mes) ? `Informado à mão (calculado: ${l.calculados?.[m.mes] ?? 0}). Dois cliques para mudar.` : 'Dois cliques para informar à mão') : undefined}>
           {formatar(l, l.valores[m.mes])}
         </td>
       ))}
-      <td className={classeValor(l, l.total) + ' fc-total'}>{l.total === null ? '' : formatar(l, l.total)}</td>
+      <td className={classeValor(l, l.total) + ' fc-total'} data-soma={l.total ?? undefined} data-formato={formatoSoma(l)}>{l.total === null ? '' : formatar(l, l.total)}</td>
     </tr>
   );
 
@@ -128,7 +132,8 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
       </div>
       <div className="muted small" style={{ display: 'grid', gap: 4 }}>
         <span><b>Vendas</b> = novas vendas (só as marcadas como nova venda) + avulsas. <b>ROAS</b> = receita das novas vendas ÷ (investimento em anúncios + imposto de anúncio).</span>
-        <span><b>Clientes totais</b> = clientes com receita recorrente no mês; clique no número para informar à mão (ex.: cliente que pagou adiantado). Os informados à mão aparecem sublinhados. <b>Churn</b> = clientes recorrentes do mês anterior que não tiveram receita recorrente neste mês; churn financeiro = quanto eles pagavam.</span>
+        <span><b>Clientes totais</b> = clientes com receita recorrente no mês; dois cliques no número para informar à mão (ex.: cliente que pagou adiantado). Os informados à mão aparecem sublinhados. <b>Churn</b> = clientes recorrentes do mês anterior que não tiveram receita recorrente neste mês; churn financeiro = quanto eles pagavam.</span>
+        <span>Clique nos valores para ir somando (a soma aparece embaixo da tela; Esc limpa).</span>
         <span>Os grupos (investimento, imposto de anúncio, variável ou fixo) vêm de cada categoria de despesa: ajuste em Configurações → Empresa, contas e categorias.</span>
       </div>
     </>

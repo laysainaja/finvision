@@ -3,6 +3,7 @@ import { EmpresaProvider, useEmpresa } from './lib/empresa';
 import { AuthProvider, supabase, useAuth } from './lib/auth';
 import { Login } from './pages/Login';
 import { Icon, ToastProvider, useToast } from './components/ui';
+import { SomaCelulas } from './components/SomaCelulas';
 import { api } from './lib/api';
 import { conviteSalvo, limparConvite } from './lib/convite';
 import { EmpresaModal } from './pages/Cadastros';
@@ -231,6 +232,7 @@ function Layout() {
           )}
         </main>
       </div>
+      <SomaCelulas />
       {novaEmpresa && <EmpresaModal onClose={() => setNovaEmpresa(false)} />}
     </div>
   );
