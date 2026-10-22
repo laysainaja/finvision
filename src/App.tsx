@@ -58,6 +58,27 @@ function montarMenu(segmento: 'servico' | 'produto'): Secao[] {
 const ROTAS = ['painel', 'extrato', 'receber', 'pagar', 'fluxo', 'conciliacao', 'cadastros', 'contatos', 'gestao', 'relatorios', ...RELATORIOS.map((r) => `relatorios/${r.id}`)];
 type Rota = string;
 
+/** Menu lateral inteiro fechado ou aberto pelo botão ☰ (lembrado no navegador). */
+function useMenuLateral() {
+  const [fechado, setFechado] = useState(() => {
+    try {
+      return localStorage.getItem('finvision:menu-lateral-fechado') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const alternarMenu = () =>
+    setFechado((f) => {
+      try {
+        localStorage.setItem('finvision:menu-lateral-fechado', f ? '0' : '1');
+      } catch {
+        /* sem armazenamento: só não lembra */
+      }
+      return !f;
+    });
+  return { menuFechado: fechado, alternarMenu };
+}
+
 /** Quais seções do menu estão recolhidas (lembrado no navegador). */
 function useSecoesFechadas() {
   const [fechadas, setFechadas] = useState<Set<string>>(() => {
@@ -110,6 +131,7 @@ function Layout() {
   const sair = () => supabase.auth.signOut();
   const temGestao = mostraGestao(empresas);
   const { fechadas, alternar } = useSecoesFechadas();
+  const { menuFechado, alternarMenu } = useMenuLateral();
 
   if (!empresa) {
     if (rota === 'gestao') {
@@ -144,8 +166,8 @@ function Layout() {
   const rotaValida = rota.startsWith('relatorios/') && !menu.some((s) => s.itens.some((i) => i.id === rota)) ? 'relatorios' : rota;
 
   return (
-    <div className="app">
-      <nav className="sidebar">
+    <div className={'app' + (menuFechado ? ' menu-fechado' : '')}>
+      <nav className="sidebar" hidden={menuFechado}>
         <div className="brand">
           <div className="brand-logo">
             <Icon name="fluxo" size={18} />
@@ -179,6 +201,9 @@ function Layout() {
       </nav>
       <div className="main">
         <header className="topbar">
+          <button className="btn btn-ghost btn-sm btn-menu" onClick={alternarMenu} aria-label={menuFechado ? 'Abrir o menu' : 'Fechar o menu'} title={menuFechado ? 'Abrir o menu' : 'Fechar o menu'} aria-expanded={!menuFechado}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+          </button>
           <select
             className="select input empresa-select"
             value={empresa.id}

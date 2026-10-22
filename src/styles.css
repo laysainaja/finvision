@@ -436,3 +436,8 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
   .conc-dia-topo { padding: 14px; grid-template-columns: 1fr 24px; }
   .conc-dia-resumo { grid-column: 1; align-items: flex-start; }
 }
+
+/* Menu lateral fechado pelo botão ☰ */
+.app.menu-fechado { grid-template-columns: 1fr; }
+.sidebar[hidden] { display: none; }
+.btn-menu { padding: 6px; }
