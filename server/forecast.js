@@ -1,6 +1,7 @@
 import express from 'express';
 import { all, get, hoje } from './db.js';
 import { check, isDate, addMonths, addDays } from './util.js';
+import { DENTRO_DO_RESULTADO } from './relatorios.js';
 
 // Forecast: acompanhamento dos meses que passaram + projeção dos próximos, no formato da planilha do escritório.
 // Tudo por competência (data de vencimento; valor pago quando já foi pago). Meses futuros = o que já está lançado
@@ -31,14 +32,15 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
       `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, l.tipo_receita,
          COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
          COALESCE(l.valor_pago, l.valor) AS valor
-       FROM lancamentos l WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.vencimento BETWEEN :de AND :ate`,
+       FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.vencimento BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}`,
       p,
     ),
     all(
       `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, COALESCE(c.id, 0) AS categoria_id, COALESCE(c.nome, 'Sem categoria') AS nome,
          COALESCE(c.grupo_forecast, 'fixo') AS grupo, SUM(COALESCE(l.valor_pago, l.valor))::bigint AS valor
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
-       WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND l.vencimento BETWEEN :de AND :ate
+       WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND l.vencimento BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}
        GROUP BY 1, 2, 3, 4`,
       p,
     ),

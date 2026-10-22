@@ -4,6 +4,9 @@ import { check, isDate, optId, addMonths, addDays, diffDays } from './util.js';
 
 export const relatoriosRouter = express.Router({ mergeParams: true });
 
+/** Filtro SQL (categorias com alias "c") que deixa de fora transferências e empréstimos: não são receita nem despesa. */
+export const DENTRO_DO_RESULTADO = "COALESCE(c.dre, '') <> 'fora_resultado'";
+
 // ---------- Período e regime ----------
 
 /** Lista de meses 'YYYY-MM' entre duas datas (inclusive). */
@@ -34,7 +37,7 @@ function movimentos({ eid, de, ate, regime, contaId }, chave) {
   return all(
     `SELECT l.tipo, to_char(${data}, 'YYYY-MM') AS mes, ${chave} AS chave, SUM(${valor})::bigint AS valor
      FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
-     WHERE l.empresa_id = :eid AND ${data} BETWEEN :de AND :ate ${contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
+     WHERE l.empresa_id = :eid AND ${data} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO} ${contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
      GROUP BY 1, 2, 3`,
     { eid, de, ate, ...(contaId && { conta: contaId }) },
   );

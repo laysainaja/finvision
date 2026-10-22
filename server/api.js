@@ -138,7 +138,7 @@ const CATEGORIAS_PADRAO = {
   },
 };
 
-export const LINHAS_DRE = ['receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa'];
+export const LINHAS_DRE = ['receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa', 'fora_resultado'];
 export const GRUPOS_FORECAST = ['investimento', 'imposto_anuncio', 'variavel', 'fixo'];
 const DRE_PADRAO = { receita: 'receita_bruta', despesa: 'despesa_operacional' };
 const forecastPadrao = (dre) => (['deducao', 'custo', 'despesa_financeira'].includes(dre) ? 'variavel' : 'fixo');

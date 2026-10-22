@@ -104,8 +104,8 @@ function ContaModal({ conta, onClose }: { conta?: ContaBancaria; onClose: () => 
   );
 }
 
-const LINHAS_RECEITA: LinhaDRE[] = ['receita_bruta', 'receita_financeira', 'outra_receita'];
-const LINHAS_DESPESA: LinhaDRE[] = ['deducao', 'custo', 'despesa_operacional', 'despesa_financeira', 'outra_despesa'];
+const LINHAS_RECEITA: LinhaDRE[] = ['receita_bruta', 'receita_financeira', 'outra_receita', 'fora_resultado'];
+const LINHAS_DESPESA: LinhaDRE[] = ['deducao', 'custo', 'despesa_operacional', 'despesa_financeira', 'outra_despesa', 'fora_resultado'];
 
 function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
   const { base, categorias, recarregar } = useEmpresa();

@@ -37,7 +37,7 @@ export interface EmpresaGestao {
   usuarios: number;
 }
 
-export type LinhaDRE = 'receita_bruta' | 'deducao' | 'custo' | 'despesa_operacional' | 'receita_financeira' | 'despesa_financeira' | 'outra_receita' | 'outra_despesa';
+export type LinhaDRE = 'receita_bruta' | 'deducao' | 'custo' | 'despesa_operacional' | 'receita_financeira' | 'despesa_financeira' | 'outra_receita' | 'outra_despesa' | 'fora_resultado';
 export const NOME_LINHA_DRE: Record<LinhaDRE, string> = {
   receita_bruta: 'Receita bruta',
   deducao: 'Deduções / impostos sobre o faturamento',
@@ -47,6 +47,7 @@ export const NOME_LINHA_DRE: Record<LinhaDRE, string> = {
   despesa_financeira: 'Despesas financeiras',
   outra_receita: 'Outras receitas',
   outra_despesa: 'Outras despesas',
+  fora_resultado: 'Fora do resultado (transferências, empréstimos)',
 };
 
 export type Regime = 'caixa' | 'competencia';

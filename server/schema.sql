@@ -117,11 +117,11 @@ exception when duplicate_object then null; end $$;
 create index if not exists ix_empresas_escritorio on empresas (escritorio_id);
 
 -- Linha da DRE onde cada categoria entra (receita bruta, deduções, custos, despesas operacionais, financeiras, outras).
+-- "fora_resultado": transferências entre contas, empréstimos e aportes. Mexem no saldo, mas não entram na DRE nem no Forecast.
 alter table categorias add column if not exists dre text;
-do $$ begin
-  alter table categorias add constraint categorias_dre_check check (dre in (
-    'receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa'));
-exception when duplicate_object then null; end $$;
+alter table categorias drop constraint if exists categorias_dre_check;
+alter table categorias add constraint categorias_dre_check check (dre in (
+  'receita_bruta', 'deducao', 'custo', 'despesa_operacional', 'receita_financeira', 'despesa_financeira', 'outra_receita', 'outra_despesa', 'fora_resultado'));
 -- Classifica categorias antigas pelo nome (só as que ainda não têm classificação).
 update categorias set dre = case
     when tipo = 'receita' and nome ilike any (array['%financeir%', '%juros%', '%rendimento%']) then 'receita_financeira'
