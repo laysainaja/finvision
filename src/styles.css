@@ -385,3 +385,32 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .filtro-cat-item.forte { font-weight: 650; }
 .filtro-cat-grupo { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
 .filtro-cat-grupo .filtro-cat-item:not(.forte) { padding-left: 22px; }
+
+/* Conciliação lado a lado: banco | Conciliar | FinVision */
+.conc-contadores { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); }
+.conc-contador { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px; border-right: 1px solid var(--border); }
+.conc-contador:last-child { border-right: 0; }
+.conc-contador b { font-size: 20px; }
+.conc-contador.ativo { box-shadow: inset 0 -3px 0 var(--primary); background: var(--primary-soft); }
+.conc-contador:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.conc-cabecalho { display: grid; grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1.35fr); gap: 16px; padding: 14px 20px 0; }
+.conc-cabecalho h3 { margin: 0; }
+.conc-linha { display: grid; grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1.35fr); gap: 16px; align-items: stretch; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.conc-banco { border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; background: var(--surface); }
+.conc-banco.ok { border-color: var(--primary); }
+.conc-banco-topo { display: flex; justify-content: space-between; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.conc-banco-desc { padding: 12px 14px; flex: 1; word-break: break-word; }
+.conc-banco-rodape { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); }
+.conc-meio { display: flex; align-items: center; justify-content: center; }
+.conc-fv { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; background: var(--surface); }
+.conc-fv-abas { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conc-opcao { cursor: pointer; }
+.conc-opcao input { accent-color: var(--primary); }
+@media (max-width: 900px) {
+  .conc-cabecalho { display: none; }
+  .conc-linha { grid-template-columns: 1fr; padding: 14px 16px; }
+  .conc-meio { order: 3; }
+}
+@media (max-width: 600px) {
+  .tabs { flex-wrap: wrap; max-width: 100%; }
+}

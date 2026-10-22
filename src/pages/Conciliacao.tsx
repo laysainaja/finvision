@@ -7,6 +7,7 @@ import type { ExtratoItem, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
 
 type Aba = 'pendente' | 'conciliado' | 'ignorado' | 'todos';
+const POR_VEZ = 15; // linhas por vez (cada uma busca as próprias sugestões)
 
 export function Conciliacao() {
   const { base, contas, versao, recarregar } = useEmpresa();
@@ -14,7 +15,9 @@ export function Conciliacao() {
   const ativas = contas.filter((c) => c.ativa);
   const [contaId, setContaId] = useState<number | ''>(ativas[0]?.id ?? '');
   const [aba, setAba] = useState<Aba>('pendente');
-  const [selId, setSelId] = useState<number | null>(null);
+  const [filtroTexto, setFiltroTexto] = useState('');
+  const [sentido, setSentido] = useState<'' | 'entrada' | 'saida'>('');
+  const [limite, setLimite] = useState(POR_VEZ);
   const [importacao, setImportacao] = useState<{ nome: string; itens: ItemExtrato[]; ignoradas: number } | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const inputArquivo = useRef<HTMLInputElement>(null);
@@ -26,14 +29,12 @@ export function Conciliacao() {
 
   const lista = useApi<ExtratoItem[]>(contaId ? `${base}/extrato${qs({ conta_id: contaId, status: aba === 'todos' ? null : aba, v: versao })}` : null);
   const itens = lista.data ?? [];
-  const sel = itens.find((i) => i.id === selId) ?? null;
   const conta = contas.find((c) => c.id === contaId);
-
-  // Mantém sempre um item selecionado: o anterior se ainda existir, senão o primeiro da lista.
-  useEffect(() => {
-    if (!lista.data) return;
-    if (!lista.data.some((i) => i.id === selId)) setSelId(lista.data[0]?.id ?? null);
-  }, [lista.data, selId]);
+  // Busca por descrição ou valor ("1326", "1.326,00"...), depois recebimentos/pagamentos.
+  const termo = filtroTexto.trim().toLowerCase();
+  const digitos = termo.replace(/[^\d]/g, '');
+  const filtrados = itens.filter((i) => !termo || (i.descricao ?? '').toLowerCase().includes(termo) || (!!digitos && String(Math.abs(i.valor)).includes(digitos)));
+  const visiveis = filtrados.filter((i) => !sentido || (sentido === 'entrada' ? i.valor > 0 : i.valor < 0));
 
   const abrirArquivo = async (arquivo: File | undefined) => {
     if (!arquivo) return;
@@ -132,43 +133,55 @@ export function Conciliacao() {
         />
       </div>
 
-      <div className="conc-layout">
-        <div className="card">
-          <div className="toolbar">
-            <div className="tabs">
-              {(
-                [
-                  ['pendente', 'Pendentes'],
-                  ['conciliado', 'Conciliados'],
-                  ['ignorado', 'Ignorados'],
-                  ['todos', 'Todos'],
-                ] as const
-              ).map(([v, label]) => (
-                <button key={v} className={'tab' + (aba === v ? ' ativo' : '')} onClick={() => setAba(v)}>
-                  {label}
-                  {v === 'pendente' && conta?.pendentes_conciliacao ? ` (${conta.pendentes_conciliacao})` : ''}
-                </button>
-              ))}
-            </div>
+      <div className="card">
+        <div className="toolbar">
+          <input className="input grow" placeholder="Pesquise o lançamento bancário (descrição ou valor)" value={filtroTexto} onChange={(e) => setFiltroTexto(e.target.value)} />
+          <div className="tabs">
+            {(
+              [
+                ['pendente', 'Pendentes'],
+                ['conciliado', 'Conciliados'],
+                ['ignorado', 'Ignorados'],
+                ['todos', 'Todos'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} className={'tab' + (aba === v ? ' ativo' : '')} onClick={() => (setAba(v), setLimite(POR_VEZ))}>
+                {label}
+                {v === 'pendente' && conta?.pendentes_conciliacao ? ` (${conta.pendentes_conciliacao})` : ''}
+              </button>
+            ))}
           </div>
-          {itens.map((i) => (
-            <div key={i.id} className={'conc-item' + (i.id === selId ? ' ativo' : '')} onClick={() => setSelId(i.id)}>
-              <div className="num muted">{dataBR(i.data).slice(0, 5)}</div>
-              <div style={{ minWidth: 0 }}>
-                <div className="desc-principal" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.descricao || '(sem descrição)'}</div>
-                <div className="desc-sub">
-                  {i.lancamento_id ? <>✓ {i.lancamento_descricao}</> : i.ignorado ? 'Ignorado' : 'Pendente'}
-                </div>
-              </div>
-              <div className={'num desc-principal ' + (i.valor > 0 ? 'entrada' : 'saida')}>{brl(i.valor)}</div>
-            </div>
-          ))}
-          {lista.data && itens.length === 0 && (
-            <div className="vazio">{aba === 'pendente' ? 'Nenhum movimento pendente nesta conta. 🎉' : 'Nenhum item aqui.'}</div>
-          )}
         </div>
-
-        <div className="conc-painel">{sel ? <PainelItem key={sel.id} item={sel} /> : <div className="card vazio">Selecione um movimento do extrato.</div>}</div>
+        <div className="conc-contadores">
+          {(
+            [
+              ['', 'Todos', filtrados.length, ''],
+              ['entrada', 'Recebimentos', filtrados.filter((i) => i.valor > 0).length, 'entrada'],
+              ['saida', 'Pagamentos', filtrados.filter((i) => i.valor < 0).length, 'saida'],
+            ] as const
+          ).map(([v, label, n, cor]) => (
+            <button key={label} className={'conc-contador' + (sentido === v ? ' ativo' : '')} onClick={() => (setSentido(v), setLimite(POR_VEZ))}>
+              <span>{label}</span>
+              <b className={'num ' + cor}>{n}</b>
+            </button>
+          ))}
+        </div>
+        {visiveis.length > 0 && (
+          <div className="conc-cabecalho">
+            <h3>Lançamentos do banco</h3>
+            <span />
+            <h3>Lançamentos do FinVision</h3>
+          </div>
+        )}
+        {visiveis.slice(0, limite).map((i) => <LinhaConciliacao key={i.id} item={i} />)}
+        {lista.data && visiveis.length === 0 && (
+          <div className="vazio">{filtroTexto || sentido ? 'Nenhum movimento com esse filtro.' : aba === 'pendente' ? 'Nenhum movimento pendente nesta conta. 🎉' : 'Nenhum item aqui.'}</div>
+        )}
+        {visiveis.length > limite && (
+          <div className="toolbar" style={{ justifyContent: 'center', borderBottom: 0 }}>
+            <button className="btn" onClick={() => setLimite((l) => l + POR_VEZ)}>Mostrar mais {Math.min(POR_VEZ, visiveis.length - limite)} de {visiveis.length - limite}</button>
+          </div>
+        )}
       </div>
 
       {importacao && (
@@ -183,185 +196,183 @@ export function Conciliacao() {
   );
 }
 
-function PainelItem({ item }: { item: ExtratoItem }) {
+type ModoLinha = 'sugestoes' | 'novo' | 'transferencia' | 'buscar';
+const diaSemana = (iso: string) => {
+  const d = new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long' });
+  return d.charAt(0).toUpperCase() + d.slice(1);
+};
+
+/** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
+function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const { base, categorias, contas, recarregar } = useEmpresa();
   const acao = useAcao();
   const toast = useToast();
-  const [modo, setModo] = useState<'lancamento' | 'transferencia'>('lancamento');
+  const entrada = item.valor > 0;
+  const pendente = !item.lancamento_id && !item.ignorado;
   const outras = contas.filter((c) => c.ativa && c.id !== item.conta_bancaria_id);
+
+  const [modo, setModo] = useState<ModoLinha>('sugestoes');
+  const [escolhido, setEscolhido] = useState<number | null>(null);
+  const [descricao, setDescricao] = useState(item.descricao ?? '');
+  const [categoria, setCategoria] = useState('');
+  const [contato, setContato] = useState('');
   const [outraConta, setOutraConta] = useState<number | ''>(outras[0]?.id ?? '');
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
-  const [criando, setCriando] = useState(false);
-  const [descricao, setDescricao] = useState(item.descricao ?? '');
-  const [categoria, setCategoria] = useState('');
-  const entrada = item.valor > 0;
-  const pendente = !item.lancamento_id && !item.ignorado;
+  const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(busca), 300);
     return () => clearTimeout(t);
   }, [busca]);
 
-  const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes${qs({ q })}` : null);
+  const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes` : null);
+  const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' && q ? `${base}/extrato/${item.id}/sugestoes${qs({ q })}` : null);
 
-  const executar = async (fn: () => Promise<unknown>, msg: string) => {
-    if (await acao(fn, msg)) recarregar();
+  // Sem sugestão, já abre em "Novo lançamento"; com sugestão forte, ela vem marcada.
+  useEffect(() => {
+    if (!sugestoes.data) return;
+    const forte = sugestoes.data.find((s) => s.valor_exato && s.dias <= 5);
+    if (!sugestoes.data.length) setModo((m) => (m === 'sugestoes' ? 'novo' : m));
+    else setEscolhido((e) => e ?? forte?.id ?? null);
+  }, [sugestoes.data]);
+
+  const rodar = async (fn: () => Promise<unknown>, msg?: string) => {
+    setEnviando(true);
+    const ok = await acao(fn, msg);
+    setEnviando(false);
+    if (ok) recarregar();
   };
 
+  const conciliar = () => {
+    if (modo === 'sugestoes' || modo === 'buscar') {
+      if (!escolhido) return toast('Escolha um lançamento para conciliar.', true);
+      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: escolhido }), 'Conciliado.');
+    }
+    if (modo === 'novo') {
+      if (!descricao.trim()) return toast('Informe a descrição.', true);
+      return rodar(() => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null, contato: contato || null }), 'Lançamento criado e conciliado.');
+    }
+    if (!outraConta) return toast('Escolha a outra conta da transferência.', true);
+    const nome = outras.find((c) => c.id === outraConta)?.nome;
+    return rodar(async () => {
+      const r = await api.post<{ outra_conta_conciliada: boolean }>(`${base}/extrato/${item.id}/criar-transferencia`, { descricao, outra_conta_id: outraConta });
+      toast(r.outra_conta_conciliada ? `Transferência conciliada aqui e no extrato da ${nome}.` : `Transferência criada e conciliada. Na ${nome} ela já aparece como paga.`);
+    });
+  };
+
+  const listaEscolha = (lista: Sugestao[] | null | undefined, vazio: string) => (
+    <div className="lista">
+      {lista?.map((s) => (
+        <label key={s.id} className={'sugestao conc-opcao' + (escolhido === s.id ? ' forte' : '')}>
+          <input type="radio" name={`conc-${item.id}`} checked={escolhido === s.id} onChange={() => setEscolhido(s.id)} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="desc-principal">{s.descricao}</div>
+            <div className="desc-sub">{s.contato ?? '—'} · {s.data_pagamento ? `pago ${dataBR(s.data_pagamento)}` : `venc. ${dataBR(s.vencimento)}`}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+              <StatusBadge status={s.status} tipo={s.tipo} />
+              {s.valor_exato ? <span className="badge badge-pago">valor exato</span> : <span className="badge badge-aviso">valor diferente</span>}
+              <span className="badge badge-neutro">{s.dias === 0 ? 'mesma data' : `${s.dias} dia(s) de diferença`}</span>
+            </div>
+          </div>
+          <span className="num desc-principal">{brl(s.valor_pago ?? s.valor)}</span>
+        </label>
+      ))}
+      {lista && lista.length === 0 && <div className="muted small">{vazio}</div>}
+    </div>
+  );
+
   return (
-    <div className="card">
-      <div className="card-header" style={{ alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="muted small">{entrada ? 'Entrada' : 'Saída'} no extrato · {dataBR(item.data)}</div>
-          <h2 style={{ wordBreak: 'break-word' }}>{item.descricao || '(sem descrição)'}</h2>
+    <div className="conc-linha">
+      <div className={'conc-banco' + (item.lancamento_id ? ' ok' : '')}>
+        <div className="conc-banco-topo">
+          <span><b className="num">{dataBR(item.data)}</b> <span className="muted">{diaSemana(item.data)}</span></span>
+          <b className={'num ' + (entrada ? 'entrada' : 'saida')}>{brl(item.valor)}</b>
         </div>
-        <div className={'kpi-valor ' + (entrada ? 'entrada' : 'saida')}>{brl(item.valor)}</div>
+        <div className="conc-banco-desc">{item.descricao || '(sem descrição)'}</div>
+        <div className="conc-banco-rodape">
+          <span className={'badge ' + (item.lancamento_id ? 'badge-pago' : item.ignorado ? 'badge-neutro' : 'badge-aberto')}>
+            {item.lancamento_id ? 'Conciliado' : item.ignorado ? 'Ignorado' : entrada ? 'Recebimento' : 'Pagamento'}
+          </span>
+          {pendente && (
+            <button className="btn btn-sm" title="Para estornos do banco e movimentos que não entram no financeiro" disabled={enviando}
+              onClick={() => rodar(() => api.post(`${base}/extrato/${item.id}/ignorar`, { ignorado: true }), 'Item ignorado.')}>Ignorar</button>
+          )}
+        </div>
       </div>
 
-      <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {item.lancamento_id && (
-          <>
-            <div className="sugestao forte">
-              <div>
-                <div className="muted small">Conciliado com</div>
-                <div className="desc-principal">{item.lancamento_descricao}</div>
-                <div className="desc-sub">
-                  {item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)} · {brl(item.lancamento_valor ?? 0)}
-                </div>
-              </div>
-              <Icon name="check" />
-            </div>
-            <button className="btn" onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/desfazer`), 'Conciliação desfeita.')}>
-              <Icon name="desfazer" /> Desfazer conciliação
-            </button>
-            <div className="muted small">Se a baixa foi feita pela conciliação, o lançamento volta a ficar em aberto. Transferência criada aqui é desfeita inteira (nas duas contas).</div>
-          </>
+      <div className="conc-meio">
+        {pendente && <button className="btn btn-primary" onClick={conciliar} disabled={enviando}>Conciliar</button>}
+        {!!item.lancamento_id && (
+          <button className="btn" disabled={enviando} title="Se a baixa foi feita pela conciliação, o lançamento volta a ficar em aberto. Transferência criada aqui é desfeita nas duas contas."
+            onClick={() => rodar(() => api.post(`${base}/extrato/${item.id}/desfazer`), 'Conciliação desfeita.')}><Icon name="desfazer" /> Desfazer</button>
         )}
-
         {!!item.ignorado && (
-          <button className="btn" onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/ignorar`, { ignorado: false }), 'Item restaurado.')}>
-            <Icon name="desfazer" /> Voltar para pendentes
+          <button className="btn" disabled={enviando} onClick={() => rodar(() => api.post(`${base}/extrato/${item.id}/ignorar`, { ignorado: false }), 'Item restaurado.')}>
+            <Icon name="desfazer" /> Restaurar
           </button>
         )}
+      </div>
 
-        {pendente && (
-          <>
-            <div>
-              <h3 style={{ marginBottom: 8 }}>Sugestões de {entrada ? 'contas a receber' : 'contas a pagar'}</h3>
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <input className="input" style={{ width: '100%' }} placeholder="Buscar outro lançamento do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} />
-              </div>
-              <div className="lista">
-                {sugestoes.data?.map((s, idx) => (
-                  <div key={s.id} className={'sugestao' + (!q && idx === 0 && s.valor_exato && s.dias <= 5 ? ' forte' : '')}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="desc-principal">{s.descricao}</div>
-                      <div className="desc-sub">
-                        {s.contato ?? '—'} · venc. {dataBR(s.vencimento)} · <span className="num">{brl(s.valor_pago ?? s.valor)}</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                        <StatusBadge status={s.status} tipo={s.tipo} />
-                        {s.valor_exato ? <span className="badge badge-pago">valor exato</span> : <span className="badge badge-aviso">valor diferente</span>}
-                        <span className="badge badge-neutro">{s.dias === 0 ? 'mesma data' : `${s.dias} dia(s) de diferença`}</span>
-                      </div>
-                    </div>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: s.id }), 'Conciliado.')}
-                    >
-                      Conciliar
-                    </button>
-                  </div>
-                ))}
-                {sugestoes.data?.length === 0 && (
-                  <div className="muted small">
-                    {q ? 'Nada encontrado com essa busca neste mês.' : 'Nenhum lançamento deste mês com valor e data parecidos. Busque acima ou crie um novo lançamento.'}
-                  </div>
-                )}
-              </div>
+      <div className="conc-fv">
+        {item.lancamento_id ? (
+          <div className="sugestao forte">
+            <div style={{ minWidth: 0 }}>
+              <div className="muted small">Conciliado com</div>
+              <div className="desc-principal">{item.lancamento_descricao}</div>
+              <div className="desc-sub">{item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)}</div>
             </div>
-
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              {!criando ? (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn" onClick={() => setCriando(true)}>
-                    <Icon name="mais" /> Criar lançamento a partir deste item
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => executar(() => api.post(`${base}/extrato/${item.id}/ignorar`, { ignorado: true }), 'Item ignorado.')}
-                    title="Para estornos do banco e outros movimentos que não devem entrar no financeiro."
-                  >
-                    Ignorar
-                  </button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div className="tabs" role="tablist" aria-label="Tipo do movimento">
-                    <button className={'tab' + (modo === 'lancamento' ? ' ativo' : '')} onClick={() => setModo('lancamento')}>{entrada ? 'Receita' : 'Despesa'}</button>
-                    <button className={'tab' + (modo === 'transferencia' ? ' ativo' : '')} onClick={() => setModo('transferencia')}>Transferência entre contas</button>
-                  </div>
-                  <div className="muted small">
-                    {modo === 'lancamento'
-                      ? 'Útil para tarifas, rendimentos e outros movimentos que só aparecem no banco. O lançamento já nasce pago e conciliado.'
-                      : `Dinheiro que ${entrada ? 'veio de' : 'foi para'} outra conta da empresa. Não entra na DRE nem no Forecast; o saldo das duas contas é ajustado.`}
-                  </div>
-                  <Field label="Descrição">
-                    <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} autoFocus />
-                  </Field>
-                  {modo === 'transferencia' ? (
-                    <Field label={entrada ? 'Veio da conta' : 'Foi para a conta'}>
-                      <select className="select input" value={outraConta} onChange={(e) => setOutraConta(e.target.value === '' ? '' : Number(e.target.value))}>
-                        <option value="">Selecione…</option>
-                        {outras.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
+            <span className="num desc-principal">{brl(item.lancamento_valor ?? 0)}</span>
+          </div>
+        ) : item.ignorado ? (
+          <div className="muted small" style={{ padding: 12 }}>Movimento ignorado: não entra no financeiro.</div>
+        ) : (
+          <>
+            <div className="conc-fv-abas">
+              <div className="tabs">
+                <button className={'tab' + (modo === 'sugestoes' ? ' ativo' : '')} onClick={() => setModo('sugestoes')}>
+                  Sugestões{sugestoes.data ? ` (${sugestoes.data.length})` : ''}
+                </button>
+                <button className={'tab' + (modo === 'novo' ? ' ativo' : '')} onClick={() => setModo('novo')}>Novo lançamento</button>
+                <button className={'tab' + (modo === 'transferencia' ? ' ativo' : '')} onClick={() => setModo('transferencia')}>Nova transferência</button>
+              </div>
+              <button className={'btn btn-ghost btn-sm' + (modo === 'buscar' ? ' btn-ativo' : '')} onClick={() => setModo('buscar')}>Buscar lançamento</button>
+            </div>
+            {modo === 'sugestoes' && listaEscolha(sugestoes.data, 'Nenhum lançamento deste mês com valor e data parecidos. Use Novo lançamento, Nova transferência ou Buscar.')}
+            {modo === 'buscar' && (
+              <>
+                <input className="input" style={{ width: '100%' }} placeholder="Buscar lançamento do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
+                {q ? listaEscolha(encontrados.data, 'Nada encontrado com essa busca neste mês.') : <div className="muted small">Digite para buscar.</div>}
+              </>
+            )}
+            {(modo === 'novo' || modo === 'transferencia') && (
+              <div className="form-grid">
+                <Field label="Descrição *">
+                  <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+                </Field>
+                {modo === 'novo' ? (
+                  <>
+                    <Field label="Categoria">
+                      <select className="select input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+                        <option value="">Sem categoria</option>
+                        {categorias.filter((c) => c.tipo === (entrada ? 'receita' : 'despesa')).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                       </select>
                     </Field>
-                  ) : (
-                  <Field label="Categoria">
-                    <select className="select input" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-                      <option value="">Sem categoria</option>
-                      {categorias.filter((c) => c.tipo === (entrada ? 'receita' : 'despesa')).map((c) => (
-                        <option key={c.id} value={c.id}>{c.nome}</option>
-                      ))}
+                    <Field label={entrada ? 'Cliente' : 'Fornecedor'} className="full">
+                      <input className="input" value={contato} onChange={(e) => setContato(e.target.value)} placeholder="Opcional" />
+                    </Field>
+                  </>
+                ) : (
+                  <Field label={entrada ? 'Veio da conta' : 'Foi para a conta'}>
+                    <select className="select input" value={outraConta} onChange={(e) => setOutraConta(e.target.value === '' ? '' : Number(e.target.value))}>
+                      <option value="">Selecione…</option>
+                      {outras.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
                     </select>
                   </Field>
-                  )}
-                  {modo === 'transferencia' && outras.length === 0 && <div className="small alerta">Cadastre outra conta bancária para registrar transferências.</div>}
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {modo === 'lancamento' ? (
-                      <button
-                        className="btn btn-primary"
-                        onClick={() =>
-                          executar(
-                            () => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null }),
-                            'Lançamento criado e conciliado.',
-                          )
-                        }
-                      >
-                        Criar e conciliar
-                      </button>
-                    ) : (
-                      <button
-                        className="btn btn-primary"
-                        disabled={!outraConta}
-                        onClick={async () => {
-                          const nome = outras.find((c) => c.id === outraConta)?.nome;
-                          const ok = await acao(async () => {
-                            const r = await api.post<{ outra_conta_conciliada: boolean }>(`${base}/extrato/${item.id}/criar-transferencia`, { descricao, outra_conta_id: outraConta });
-                            toast(r.outra_conta_conciliada ? `Transferência conciliada aqui e no extrato da ${nome}.` : `Transferência criada e conciliada. Na ${nome} ela já aparece como paga.`);
-                          });
-                          if (ok) recarregar();
-                        }}
-                      >
-                        Criar transferência e conciliar
-                      </button>
-                    )}
-                    <button className="btn" onClick={() => setCriando(false)}>Cancelar</button>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
+            {modo === 'transferencia' && <div className="muted small">Não entra na DRE nem no Forecast; o saldo das duas contas é ajustado.</div>}
           </>
         )}
       </div>
