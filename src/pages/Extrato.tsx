@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
-import { addMeses, brl, dataBR, fimMes, hoje, inicioMes } from '../lib/format';
+import { brl, dataBR, hoje } from '../lib/format';
 import { NOME_TIPO_RECEITA, type ItemExtrato, type Lancamento, type Movimentacoes, type SituacaoExtrato, type TipoLancamento } from '../types';
 import { Icon, useAcao } from '../components/ui';
 import { exportarCSV } from '../lib/exportar';
 import { BaixaModal, LancamentoForm } from '../components/LancamentoForms';
-
-const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-const nomeMes = (iso: string) => `${MESES[Number(iso.slice(5, 7)) - 1]} de ${iso.slice(0, 4)}`;
+import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
 
 const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
   recebido: { label: 'Recebido', classe: 'badge-pago' },
@@ -53,10 +51,8 @@ export function Extrato() {
   const { base, versao, recarregar, contas, categorias, empresa } = useEmpresa();
   const acao = useAcao();
 
-  const [mes, setMes] = useState(inicioMes(hoje()));
-  const [personalizado, setPersonalizado] = useState<{ de: string; ate: string } | null>(null);
-  const de = personalizado?.de ?? mes;
-  const ate = personalizado?.ate ?? fimMes(mes);
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoDe('mes'));
+  const { de, ate } = periodo;
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
   const [conta, setConta] = useState('');
@@ -85,7 +81,7 @@ export function Extrato() {
   const totalPaginas = Math.max(1, Math.ceil(itens.length / POR_PAGINA));
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
-  const filtrosAtivos = [q, conta, tipo, situacao, categoria].filter(Boolean).length + (personalizado ? 1 : 0);
+  const filtrosAtivos = [q, conta, tipo, situacao, categoria].filter(Boolean).length;
 
   const atalho = (t: Tipo, s: Situacao) => {
     const mesmo = tipo === t && situacao === s;
@@ -98,11 +94,6 @@ export function Extrato() {
     setTipo('');
     setSituacao('');
     setCategoria('');
-    setPersonalizado(null);
-  };
-  const andarMes = (n: number) => {
-    setPersonalizado(null);
-    setMes(addMeses(mes, n));
   };
   const concluir = () => {
     setNovo(null);
@@ -145,7 +136,7 @@ export function Extrato() {
       ['Total do período', null, null, null, null, null, null, null, data.resumo.total_periodo, null],
       ['Saldo final (realizado)', null, null, null, null, null, null, null, null, data.saldo_final],
     ];
-    const periodoNome = personalizado ? `${de} a ${ate}` : mes.slice(0, 7);
+    const periodoNome = periodo.modo === 'mes' ? de.slice(0, 7) : periodo.modo === 'tudo' ? 'todo o período' : `${de} a ${ate}`;
     exportarCSV(
       `Extrato de movimentações - ${empresa?.nome ?? ''} - ${periodoNome}`,
       ['Data', 'Descrição', 'Cliente / Fornecedor', 'Categoria', 'Conta', 'Tipo de receita', 'Situação', 'Vencimento', 'Valor (R$)', 'Saldo (R$)'],
@@ -203,11 +194,7 @@ export function Extrato() {
 
       <div className="card">
         <div className="toolbar">
-          <div className="periodo">
-            <button className="btn btn-ghost btn-sm" onClick={() => andarMes(-1)} aria-label="Mês anterior"><Icon name="esquerda" /></button>
-            <span className="periodo-nome">{personalizado ? `${dataBR(de)} a ${dataBR(ate)}` : nomeMes(mes)}</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => andarMes(1)} aria-label="Próximo mês"><Icon name="direita" /></button>
-          </div>
+          <SeletorPeriodo valor={periodo} onChange={setPeriodo} />
           <input className="input grow" placeholder="Pesquisar no período (descrição, cliente, fornecedor, categoria)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
           <select className="select input" value={conta} onChange={(e) => setConta(e.target.value)} aria-label="Conta">
             <option value="">Todas as contas</option>
@@ -245,12 +232,6 @@ export function Extrato() {
                 <optgroup label="Receitas">{categorias.filter((c) => c.tipo === 'receita').map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</optgroup>
                 <optgroup label="Despesas">{categorias.filter((c) => c.tipo === 'despesa').map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</optgroup>
               </select>
-            </label>
-            <label className="field-inline">Período personalizado
-              <span style={{ display: 'flex', gap: 6 }}>
-                <input className="input" type="date" value={de} onChange={(e) => setPersonalizado({ de: e.target.value, ate })} aria-label="De" />
-                <input className="input" type="date" value={ate} onChange={(e) => setPersonalizado({ de, ate: e.target.value })} aria-label="Até" />
-              </span>
             </label>
           </div>
         )}

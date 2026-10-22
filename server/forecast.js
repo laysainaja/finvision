@@ -27,9 +27,9 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
   const mesAnteriorAoPeriodo = addMonths(de, -1).slice(0, 7); // para calcular o churn do primeiro mês
   const p = { eid: req.eid, de: addMonths(de, -1), ate };
 
-  const [receitas, despesas, saldoContas, movAntes, caixaMov] = await Promise.all([
+  const [receitas, despesas, saldoContas, movAntes, caixaMov, ajustes] = await Promise.all([
     all(
-      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, l.tipo_receita,
+      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, l.tipo_receita, COALESCE(c.dre, '') AS dre,
          COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
          COALESCE(l.valor_pago, l.valor) AS valor
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
@@ -62,7 +62,9 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
        GROUP BY 1`,
       { eid: req.eid, de, ate, hoje: h },
     ),
+    all("SELECT mes, campo, valor FROM forecast_ajustes WHERE empresa_id = :eid AND mes BETWEEN :de AND :ate", { eid: req.eid, de: de.slice(0, 7), ate: ate.slice(0, 7) }),
   ]);
+  const ajuste = (campo, m) => ajustes.find((a) => a.campo === campo && a.mes === m)?.valor;
 
   // ---------- Receitas por mês: vendas e base recorrente ----------
   const todosMeses = [mesAnteriorAoPeriodo, ...meses];
@@ -73,6 +75,7 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     const m = porMes[r.mes];
     if (!m) continue;
     m.receita += r.valor;
+    if (r.dre && r.dre !== 'receita_bruta') continue; // outras receitas (reembolsos, financeiras) entram na receita, mas não são venda
     const tipo = r.tipo_receita ?? 'avulsa'; // sem classificação conta como venda avulsa
     if (!r.tipo_receita) m.semTipo += 1;
     m[tipo].n += 1;
@@ -104,6 +107,7 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
   const mesAnterior = (i) => porMes[todosMeses[i]]; // todosMeses[i] é o mês anterior a meses[i]
   const perdidos = (m, i) => [...mesAnterior(i).base.keys()].filter((c) => !porMes[m].base.has(c));
   const churnFin = (m, i) => perdidos(m, i).reduce((s, c) => s + mesAnterior(i).base.get(c), 0);
+  const clientes = (m) => ajuste('clientes', m) ?? porMes[m].base.size;
   const mrr = (m) => [...porMes[m].base.values()].reduce((s, v) => s + v, 0);
   const vendasN = (m) => porMes[m].nova.n + porMes[m].avulsa.n;
   const vendasV = (m) => porMes[m].nova.v + porMes[m].avulsa.v;
@@ -144,13 +148,13 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     {
       id: 'retencao', titulo: 'Retenção',
       linhas: [
-        linha('clientes', 'Número de clientes totais', 'numero', (m) => porMes[m].base.size, null),
+        { ...linha('clientes', 'Número de clientes totais', 'numero', clientes, null), editavel: true, calculados: Object.fromEntries(meses.map((m) => [m, porMes[m].base.size])), ajustados: meses.filter((m) => ajuste('clientes', m) !== undefined) },
         linha('churn_clientes', 'Churn de clientes (perdidos)', 'numero', (m, i) => perdidos(m, i).length),
-        linha('taxa_churn_clientes', 'Taxa de churn (clientes)', 'pct', (m, i) => pct(perdidos(m, i).length, mesAnterior(i).base.size), null),
+        linha('taxa_churn_clientes', 'Taxa de churn (clientes)', 'pct', (m, i) => pct(perdidos(m, i).length, clientes(todosMeses[i])), null),
         linha('taxa_churn_financeiro', 'Taxa de churn (financeiro)', 'pct', (m, i) => pct(churnFin(m, i), mrr(todosMeses[i])), null),
         linha('recorrencia', 'Recorrência (R$)', 'moeda', mrr),
         linha('churn_financeiro', 'Churn financeiro (R$)', 'moeda', churnFin),
-        linha('ticket_recorrente', 'Ticket médio recorrente (R$)', 'moeda', (m) => div(mrr(m), porMes[m].base.size), null),
+        linha('ticket_recorrente', 'Ticket médio recorrente (R$)', 'moeda', (m) => div(mrr(m), clientes(m)), null),
       ],
     },
     { id: 'receita', titulo: 'Receita', linhas: [], destaque: linha('receita', 'Receita (R$)', 'moeda', (m) => porMes[m].receita) },
@@ -174,4 +178,21 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     blocos,
     sem_tipo: meses.reduce((s, m) => s + porMes[m].semTipo, 0),
   });
+});
+
+// Valores do Forecast informados à mão (hoje: número de clientes totais do mês). valor vazio volta ao calculado.
+const CAMPOS_AJUSTE = ['clientes'];
+forecastRouter.put('/relatorios/forecast/ajustes', async (req, res) => {
+  const { mes, campo } = req.body;
+  check(/^\d{4}-(0[1-9]|1[0-2])$/.test(mes ?? ''), 'Mês inválido.');
+  check(CAMPOS_AJUSTE.includes(campo), 'Campo inválido.');
+  const valor = req.body.valor === null || req.body.valor === '' ? null : Number(req.body.valor);
+  check(valor === null || (Number.isInteger(valor) && valor >= 0), 'Informe um número inteiro (ou deixe vazio para usar o calculado).');
+  if (valor === null) await all('DELETE FROM forecast_ajustes WHERE empresa_id = :eid AND mes = :mes AND campo = :campo', { eid: req.eid, mes, campo });
+  else await all(
+    `INSERT INTO forecast_ajustes (empresa_id, mes, campo, valor) VALUES (:eid, :mes, :campo, :valor)
+     ON CONFLICT (empresa_id, mes, campo) DO UPDATE SET valor = excluded.valor`,
+    { eid: req.eid, mes, campo, valor },
+  );
+  res.json({ ok: true });
 });

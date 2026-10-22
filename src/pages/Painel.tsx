@@ -47,7 +47,8 @@ export function Painel() {
           <div className="kpi-label">Saldo em contas</div>
           <div className={'kpi-valor ' + (r.saldo_total < 0 ? 'alerta' : '')}>{brl(r.saldo_total)}</div>
           <div className="kpi-sub">
-            {r.contas.filter((c) => c.ativa).map((c) => (
+            {/* Só as contas com dinheiro; as zeradas continuam em Configurações. */}
+            {r.contas.filter((c) => c.ativa && c.saldo_atual !== 0).map((c) => (
               <span key={c.id}>
                 {c.nome} <b className="num">{brl(c.saldo_atual)}</b>
               </span>

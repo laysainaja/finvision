@@ -1,12 +1,12 @@
 // Importa o "Extrato financeiro" exportado do Conta Azul para uma empresa do FinVision.
 // A planilha precisa antes virar JSON (uma linha por objeto, com os títulos das colunas do Conta Azul).
 // Sem --gravar só mostra a prévia (nada é gravado). Os lançamentos ficam marcados com MARCA na observação.
-// Uso: node --env-file=.env scripts/importar-conta-azul.js extrato.json --cnpj 41735336000180 [--saldo "C6 - 41735336000180=2668.03"] [--gravar]
+// --refazer apaga a importação anterior (só os lançamentos com MARCA) e importa de novo; o que foi lançado à mão fica.
+// Uso: node --env-file=.env scripts/importar-conta-azul.js extrato.json --cnpj 41735336000180 [--saldo "C6 - 41735336000180=2668.03"] [--refazer] [--gravar]
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { sql, get, all, transaction } from '../server/db.js';
 import { chaveNome } from '../server/util.js';
-import { inserirLancamento } from '../server/api.js';
 import { resolverContato } from '../server/contatos.js';
 
 const MARCA = 'Importado do Conta Azul';
@@ -15,13 +15,15 @@ const opcao = (nome) => { const i = args.indexOf(nome); return i >= 0 ? args[i +
 const arquivo = args[0];
 const cnpj = (opcao('--cnpj') ?? '').replace(/\D/g, '');
 const gravar = args.includes('--gravar');
+const refazer = args.includes('--refazer');
 if (!arquivo || !cnpj) {
-  console.error('Uso: node --env-file=.env scripts/importar-conta-azul.js extrato.json --cnpj 00000000000000 [--saldo "Conta=1234.56"] [--gravar]');
+  console.error('Uso: node --env-file=.env scripts/importar-conta-azul.js extrato.json --cnpj 00000000000000 [--saldo "Conta=1234.56"] [--refazer] [--gravar]');
   process.exit(1);
 }
 
 // ---------- Categorias do Conta Azul → FinVision ----------
-// Destino: nome da categoria no FinVision (usa a existente pelo nome, ignorando maiúsculas e acentos; senão cria com a linha da DRE e o grupo do Forecast).
+// A categoria mantém o nome do Conta Azul (usa a existente pelo nome, ignorando maiúsculas e acentos; senão cria).
+// DESTINO só define a linha da DRE e o grupo do Forecast de cada uma (o primeiro item é o nome antigo, só para referência).
 const FORA = 'fora_resultado';
 const DESTINO = {
   receita: {
@@ -108,7 +110,8 @@ for (const [i, l] of linhas.entries()) {
   if (!tipoCA || !valorPago) { avisos.push(`linha ${i + 2} ignorada (${l['Descrição'] || l['Categoria 1']}: valor zero ou tipo desconhecido)`); continue; }
   const descricao = String(l['Descrição'] ?? '').replace(/\s+/g, ' ').trim();
   const regra = POR_DESCRICAO.find((r) => r.re.test(descricao) && /identificar|Empréstimos de Sócios/i.test(l['Categoria 1']));
-  const destino = regra ? regra[tipoCA] : DESTINO[tipoCA][l['Categoria 1']];
+  const classe = DESTINO[tipoCA][l['Categoria 1']];
+  const destino = regra ? regra[tipoCA] : classe && [l['Categoria 1'], ...classe.slice(1)];
   if (!destino) throw new Error(`Categoria sem destino: "${l['Categoria 1']}" (${tipoCA}). Inclua-a em DESTINO.`);
   const aberto = l['Situação'] === 'Em aberto';
   let contato = limparNome(String(l['Nome do fornecedor/cliente'] ?? ''));
@@ -151,16 +154,14 @@ for (const it of itens.filter((x) => x.recorrente)) {
   it.grupo = grupos.get(k);
 }
 
-// Tipo de receita (Forecast) só para receitas de serviço: nova venda, recorrente ou avulsa.
+// Tipo de receita (Forecast) só para receitas de venda. Nova venda só quando a descrição diz "nova venda" (como no contrato).
 itens.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.linha - b.linha);
 const ultimaReceita = new Map();
 for (const it of itens.filter((x) => x.tipo === 'receber' && x.categoria[1] === 'receita_bruta')) {
   const k = it.contato ? chaveContato(it.contato) : null;
   const anterior = k ? ultimaReceita.get(k) : null;
   const recente = anterior && (new Date(it.vencimento) - new Date(anterior)) / 86400000 <= 62;
-  it.tipoReceita = it.novaVenda ? 'nova'
-    : it.recorrente ? (it.recorrente.parcela === 1 ? 'nova' : 'recorrente')
-    : recente ? 'recorrente' : 'avulsa';
+  it.tipoReceita = it.novaVenda ? 'nova' : it.recorrente || recente ? 'recorrente' : 'avulsa';
   if (k) ultimaReceita.set(k, it.vencimento);
 }
 
@@ -174,9 +175,10 @@ for (const n of saldos.keys()) if (!contas.includes(n)) throw new Error(`--saldo
 // ---------- Prévia ----------
 const reais = (c) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const empresa = await get(
-  `SELECT e.id, e.nome, e.segmento, (SELECT COUNT(*) FROM lancamentos WHERE empresa_id = e.id) AS lancamentos
+  `SELECT e.id, e.nome, e.segmento, (SELECT COUNT(*) FROM lancamentos WHERE empresa_id = e.id) AS lancamentos,
+     (SELECT COUNT(*) FROM lancamentos WHERE empresa_id = e.id AND observacao LIKE :marca) AS importados
    FROM empresas e WHERE regexp_replace(COALESCE(e.documento, ''), '\\D', '', 'g') = :cnpj`,
-  { cnpj },
+  { cnpj, marca: MARCA + '%' },
 );
 if (!empresa) throw new Error(`Nenhuma empresa com CNPJ ${cnpj} no FinVision.`);
 const catsExistentes = await all('SELECT id, nome, tipo FROM categorias WHERE empresa_id = :eid', { eid: empresa.id });
@@ -184,7 +186,8 @@ const contasExistentes = await all('SELECT id, nome FROM contas_bancarias WHERE 
 const achaCat = (nome, tipo) => catsExistentes.find((c) => c.tipo === tipo && chaveNome(c.nome) === chaveNome(nome));
 const achaConta = (nome) => contasExistentes.find((c) => chaveNome(c.nome) === chaveNome(nome));
 
-console.log(`\nEmpresa: ${empresa.nome} (id ${empresa.id}, ${empresa.segmento}) — já tem ${empresa.lancamentos} lançamentos`);
+console.log(`\nEmpresa: ${empresa.nome} (id ${empresa.id}, ${empresa.segmento}) — já tem ${empresa.lancamentos} lançamentos (${empresa.importados} de importação anterior)`);
+if (refazer) console.log(`--refazer: apaga os ${empresa.importados} importados antes, mantém os ${empresa.lancamentos - empresa.importados} lançados à mão e remove categorias e contatos que ficarem sem uso.`);
 console.log(`Planilha: ${linhas.length} linhas → ${itens.length} lançamentos (${itens.filter((x) => !x.pagamento).length} em aberto)`);
 avisos.forEach((a) => console.log('  aviso:', a));
 
@@ -220,10 +223,11 @@ if (!gravar) {
   await sql.end();
   process.exit(0);
 }
-if (empresa.lancamentos > 0) throw new Error('A empresa já tem lançamentos; a importação só roda numa empresa vazia para não duplicar.');
+if (empresa.lancamentos > 0 && !refazer) throw new Error('A empresa já tem lançamentos; a importação só roda numa empresa vazia para não duplicar (use --refazer para trocar uma importação anterior).');
 
 // ---------- Gravação (tudo ou nada) ----------
 await transaction(async () => {
+  if (refazer) await all('DELETE FROM lancamentos WHERE empresa_id = :eid AND observacao LIKE :marca', { eid: empresa.id, marca: MARCA + '%' });
   const idConta = new Map();
   for (const c of contas) {
     const existente = achaConta(c);
@@ -243,15 +247,34 @@ await transaction(async () => {
       { eid: empresa.id, nome: c.cat[0], tipo: tipoCat, dre: c.cat[1], grupo: tipoCat === 'despesa' ? c.cat[2] : null },
     )).id);
   }
-  for (const it of itens) {
-    const contato = await resolverContato(empresa.id, it.contato, it.tipo);
-    await inserirLancamento({
+  // Cada contato é resolvido uma vez; os lançamentos vão em lotes (uma consulta por lote: o pooler do Supabase é lento para mil idas e voltas).
+  const contatos = new Map();
+  for (const it of itens.filter((x) => x.contato)) {
+    const k = `${it.tipo}|${it.contato}`;
+    if (!contatos.has(k)) contatos.set(k, await resolverContato(empresa.id, it.contato, it.tipo));
+  }
+  const registros = itens.map((it) => {
+    const contato = it.contato ? contatos.get(`${it.tipo}|${it.contato}`) : null;
+    return {
       empresa_id: empresa.id, tipo: it.tipo, descricao: it.descricao, contato: contato?.nome ?? null, contato_id: contato?.id ?? null,
       tipo_receita: it.tipoReceita ?? null, categoria_id: idCat.get(`${it.tipo === 'receber' ? 'receita' : 'despesa'}|${it.categoria[0]}`),
       conta_bancaria_id: idConta.get(it.conta), valor: it.valor, vencimento: it.vencimento, documento: it.documento, observacao: it.observacao,
       data_pagamento: it.pagamento, valor_pago: it.valorPago, origem_baixa: it.pagamento ? 'manual' : null,
       grupo_parcelas: it.grupo ?? null, parcela: it.recorrente?.parcela ?? null, total_parcelas: it.recorrente?.total ?? null,
-    });
+    };
+  });
+  const COLUNAS = Object.keys(registros[0]).join(', ');
+  for (let i = 0; i < registros.length; i += 250) {
+    await all(
+      `INSERT INTO lancamentos (${COLUNAS}) SELECT ${COLUNAS} FROM json_populate_recordset(null::lancamentos, (:dados::text)::json)`,
+      { dados: JSON.stringify(registros.slice(i, i + 250)) },
+    );
+  }
+  if (refazer) {
+    // Categorias e contatos que sobraram sem nenhum lançamento (nomes antigos) saem do cadastro.
+    const cats = await all('DELETE FROM categorias c WHERE empresa_id = :eid AND NOT EXISTS (SELECT 1 FROM lancamentos l WHERE l.categoria_id = c.id) RETURNING nome', { eid: empresa.id });
+    const cts = await all('DELETE FROM contatos c WHERE empresa_id = :eid AND NOT EXISTS (SELECT 1 FROM lancamentos l WHERE l.contato_id = c.id) RETURNING nome', { eid: empresa.id });
+    console.log(`Removidas ${cats.length} categorias sem uso (${cats.map((c) => c.nome).join(', ')}) e ${cts.length} contatos sem uso.`);
   }
 });
 console.log(`\nImportado: ${itens.length} lançamentos na empresa ${empresa.nome}.`);

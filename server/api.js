@@ -347,11 +347,13 @@ export const TIPOS_RECEITA = ['recorrente', 'nova', 'avulsa'];
 
 /**
  * Sugestão do tipo de receita quando o usuário deixa em "Automático":
- * - mensalidade repetida (repetir N meses): 1ª é "nova venda" se o cliente ainda não era recorrente; as demais, "recorrente";
+ * - só é "nova venda" quando a descrição diz "nova venda" (como no contrato); numa mensalidade repetida, só a 1ª;
+ * - mensalidade repetida (repetir N meses): "recorrente";
  * - venda parcelada: "avulsa" (é uma venda só, dividida);
  * - lançamento único: "recorrente" se o cliente teve receita recorrente nos últimos 2 meses; senão "avulsa".
  */
-async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo) {
+async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo, descricao = '') {
+  const nova = /nova venda/i.test(descricao);
   const jaRecorrente = contatoId
     ? !!(await get(
         `SELECT 1 FROM lancamentos WHERE empresa_id = :eid AND contato_id = :c AND tipo = 'receber'
@@ -359,7 +361,8 @@ async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo) {
         { eid, c: contatoId, venc: vencimento },
       ))
     : false;
-  if (n > 1 && modo === 'repetir') return (i) => (i === 0 && !jaRecorrente ? 'nova' : 'recorrente');
+  if (n > 1 && modo === 'repetir') return (i) => (i === 0 && nova ? 'nova' : 'recorrente');
+  if (nova) return (i) => (i === 0 ? 'nova' : 'avulsa');
   if (n > 1) return () => 'avulsa';
   return () => (jaRecorrente ? 'recorrente' : 'avulsa');
 }
@@ -399,7 +402,7 @@ e.post('/lancamentos', async (req, res) => {
     const tipoReceita =
       base.tipo !== 'receber' ? () => null
       : base.tipo_receita ? () => base.tipo_receita
-      : await sugerirTipoReceita(req.eid, base.contato_id, base.vencimento, n, modo);
+      : await sugerirTipoReceita(req.eid, base.contato_id, base.vencimento, n, modo, base.descricao);
     const ids = [];
     for (let i = 0; i < n; i++) {
       ids.push(

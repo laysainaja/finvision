@@ -1,10 +1,10 @@
 import { Fragment, useState } from 'react';
-import { qs, useApi } from '../lib/api';
+import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { addMeses, fimMes, hoje, inicioMes, mesCurto, num } from '../lib/format';
 import { exportarCSV } from '../lib/exportar';
 import type { LinhaForecast, RelatorioForecast } from '../types';
-import { Icon } from '../components/ui';
+import { Icon, useAcao } from '../components/ui';
 
 type Periodo = { de: string; ate: string };
 const PRESETS: { id: string; nome: string; calc: () => Periodo }[] = [
@@ -30,7 +30,8 @@ export function Forecast() {
   const { base, versao, empresa } = useEmpresa();
   const [preset, setPreset] = useState('padrao');
   const [periodo, setPeriodo] = useState<Periodo>(PRESETS[0].calc);
-  const { data, erro } = useApi<RelatorioForecast>(`${base}/relatorios/forecast${qs({ de: periodo.de, ate: periodo.ate, v: versao })}`);
+  const acao = useAcao();
+  const { data, erro, recarregar } = useApi<RelatorioForecast>(`${base}/relatorios/forecast${qs({ de: periodo.de, ate: periodo.ate, v: versao })}`);
 
   const exportar = () => {
     if (!data) return;
@@ -45,11 +46,23 @@ export function Forecast() {
   const classeValor = (l: LinhaForecast, v: number | null | undefined) =>
     'r num ' + ((l.id === 'lucro' || l.id === 'lucro_pct' || l.id === 'caixa') && v !== null && v !== undefined && v < 0 ? 'alerta' : '') + (!v ? ' muted' : '');
 
+  // Clientes totais: clique no mês para informar o número à mão (vazio volta ao calculado pelos recebimentos).
+  const editar = async (l: LinhaForecast, mes: string) => {
+    const calculado = l.calculados?.[mes] ?? 0;
+    const resp = prompt(`${l.nome} em ${mesCurto(mes)}.
+Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado.`, String(l.valores[mes] ?? ''));
+    if (resp === null) return;
+    if (await acao(() => api.put(`${base}/relatorios/forecast/ajustes`, { mes, campo: l.id, valor: resp.trim() === '' ? null : Number(resp.trim()) }))) recarregar();
+  };
+
   const Linha = ({ l, destaque }: { l: LinhaForecast; destaque?: boolean }) => (
     <tr className={destaque ? 'fc-destaque' : ''}>
       <td className="col-fixa">{l.nome}</td>
       {data!.meses.map((m) => (
-        <td key={m.mes} className={classeValor(l, l.valores[m.mes]) + (m.status === 'projecao' ? ' fc-proj' : '')}>{formatar(l, l.valores[m.mes])}</td>
+        <td key={m.mes} className={classeValor(l, l.valores[m.mes]) + (m.status === 'projecao' ? ' fc-proj' : '') + (l.editavel ? ' fc-editavel' : '') + (l.ajustados?.includes(m.mes) ? ' fc-ajustado' : '')}
+          onClick={l.editavel ? () => editar(l, m.mes) : undefined} title={l.editavel ? (l.ajustados?.includes(m.mes) ? `Informado à mão (calculado: ${l.calculados?.[m.mes] ?? 0}). Clique para mudar.` : 'Clique para informar à mão') : undefined}>
+          {formatar(l, l.valores[m.mes])}
+        </td>
       ))}
       <td className={classeValor(l, l.total) + ' fc-total'}>{l.total === null ? '' : formatar(l, l.total)}</td>
     </tr>
@@ -82,7 +95,7 @@ export function Forecast() {
         {erro && <div className="vazio alerta">{erro}</div>}
         {data && data.sem_tipo > 0 && (
           <div className="aviso-box" style={{ margin: '12px 20px 0' }}>
-            <Icon name="alerta" /> {data.sem_tipo} recebimento(s) no período estão sem tipo de receita e foram contados como venda avulsa. Ajuste em Contas a receber → Editar → Tipo de receita.
+            <Icon name="alerta" /> {data.sem_tipo} venda(s) no período estão sem tipo (nova, recorrente ou avulsa) e foram contadas como avulsas. Se alguma for nova venda ou mensalidade, ajuste em Contas a receber → Editar → Tipo de receita.
           </div>
         )}
         {data && (
@@ -114,8 +127,8 @@ export function Forecast() {
         )}
       </div>
       <div className="muted small" style={{ display: 'grid', gap: 4 }}>
-        <span><b>Vendas</b> = novas vendas (recorrentes = novos contratos) + avulsas. <b>ROAS</b> = receita das novas vendas ÷ (investimento em anúncios + imposto de anúncio).</span>
-        <span><b>Clientes totais</b> = clientes com receita recorrente no mês. <b>Churn</b> = clientes recorrentes do mês anterior que não tiveram receita recorrente neste mês; churn financeiro = quanto eles pagavam.</span>
+        <span><b>Vendas</b> = novas vendas (só as marcadas como nova venda) + avulsas. <b>ROAS</b> = receita das novas vendas ÷ (investimento em anúncios + imposto de anúncio).</span>
+        <span><b>Clientes totais</b> = clientes com receita recorrente no mês; clique no número para informar à mão (ex.: cliente que pagou adiantado). Os informados à mão aparecem sublinhados. <b>Churn</b> = clientes recorrentes do mês anterior que não tiveram receita recorrente neste mês; churn financeiro = quanto eles pagavam.</span>
         <span>Os grupos (investimento, imposto de anúncio, variável ou fixo) vêm de cada categoria de despesa: ajuste em Configurações → Empresa, contas e categorias.</span>
       </div>
     </>

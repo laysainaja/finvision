@@ -152,6 +152,16 @@ h3 { font-size: 14px; }
 .kpi-filtro.ativo { border-color: var(--primary); box-shadow: inset 0 -3px 0 var(--primary), var(--shadow); }
 .periodo { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .periodo-nome { min-width: 170px; text-align: center; font-weight: 600; padding: 0 6px; }
+.seletor-periodo { position: relative; }
+.periodo-botao { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 210px; padding: 6px 10px; color: var(--primary); }
+.periodo-botao:hover, .periodo-botao:focus-visible { background: var(--primary-soft); }
+.periodo-botao svg { width: 16px; height: 16px; flex: none; }
+.periodo-menu { left: 0; right: auto; min-width: 240px; }
+.periodo-menu button.ativo { background: var(--primary-soft); color: var(--primary); }
+.periodo-custom { display: grid; gap: 6px; padding: 8px 12px 6px; border-top: 1px solid var(--border); margin-top: 4px; }
+.menu-lista .periodo-custom button { background: var(--primary); color: #fff; justify-content: center; font-weight: 600; }
+.menu-lista .periodo-custom button:hover { background: var(--primary); filter: brightness(1.08); }
+.menu-lista .periodo-custom button:disabled { opacity: .5; cursor: default; }
 .btn-ativo { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
 .filtros-extra { background: var(--surface-2); align-items: flex-end; }
 .field-inline { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-2); }
@@ -178,6 +188,9 @@ h3 { font-size: 14px; }
 .tabela-forecast .fc-destaque td { font-weight: 700; border-top: 2px solid var(--text-3); background: var(--surface-2); }
 .tabela-forecast .fc-destaque .col-fixa { background: var(--surface-2); }
 .tabela-forecast .fc-proj { background: var(--primary-soft); }
+.tabela-forecast .fc-editavel { cursor: pointer; }
+.tabela-forecast .fc-editavel:hover { outline: 1px dashed var(--primary); outline-offset: -3px; }
+.tabela-forecast .fc-ajustado { text-decoration: underline dotted; font-weight: 600; }
 .tabela-forecast th.fc-atual { box-shadow: inset 0 -3px 0 var(--primary); }
 .tabela-forecast .fc-total { font-weight: 650; border-left: 1px solid var(--border); }
 .fc-status { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }

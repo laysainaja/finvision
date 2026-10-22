@@ -183,6 +183,15 @@ update contatos c set tipo = 'ambos' where tipo <> 'ambos'
   and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'receber')
   and exists (select 1 from lancamentos l where l.contato_id = c.id and l.tipo = 'pagar');
 
+-- Valores do Forecast informados à mão por mês (ex.: clientes totais, quando o cliente paga adiantado).
+create table if not exists forecast_ajustes (
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  mes text not null check (mes ~ '^\d{4}-\d{2}$'),
+  campo text not null check (campo in ('clientes')),
+  valor bigint not null,
+  primary key (empresa_id, mes, campo)
+);
+
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
 -- Todo acesso passa pelo nosso servidor, que verifica o login e a empresa antes de cada consulta.
@@ -196,3 +205,4 @@ alter table convites enable row level security;
 alter table escritorios enable row level security;
 alter table escritorio_membros enable row level security;
 alter table contatos enable row level security;
+alter table forecast_ajustes enable row level security;

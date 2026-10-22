@@ -209,6 +209,10 @@ export interface LinhaForecast {
   formato: FormatoForecast;
   valores: Record<string, number | null>;
   total: number | null;
+  /** Linha que aceita valor informado à mão (clientes totais). */
+  editavel?: boolean;
+  calculados?: Record<string, number>;
+  ajustados?: string[];
 }
 export interface RelatorioForecast {
   de: string;
