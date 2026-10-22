@@ -439,5 +439,6 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 
 /* Menu lateral fechado pelo botão ☰ */
 .app.menu-fechado { grid-template-columns: 1fr; }
+.app.menu-fechado .content { max-width: none; } /* menu fechado: a tela usa a largura toda */
 .sidebar[hidden] { display: none; }
 .btn-menu { padding: 6px; }
