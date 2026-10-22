@@ -30,6 +30,7 @@ const PRESETS: { id: string; nome: string; calc: () => Periodo }[] = [
   { id: 'ano', nome: 'Este ano', calc: () => ({ de: hoje().slice(0, 4) + '-01-01', ate: hoje().slice(0, 4) + '-12-31' }) },
   { id: 'anterior', nome: 'Ano passado', calc: () => { const a = Number(hoje().slice(0, 4)) - 1; return { de: `${a}-01-01`, ate: `${a}-12-31` }; } },
   { id: '3m', nome: 'Últimos 3 meses', calc: () => ({ de: addMeses(inicioMes(hoje()), -2), ate: fimMes(hoje()) }) },
+  { id: 'mes', nome: 'Este mês', calc: () => ({ de: inicioMes(hoje()), ate: fimMes(hoje()) }) },
 ];
 
 function BarraFiltros({ periodo, setPeriodo, regime, setRegime, extra, onExportar }: {
