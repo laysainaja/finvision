@@ -130,6 +130,8 @@ function Layout() {
   const pendentes = contas.reduce((s, c) => s + c.pendentes_conciliacao, 0);
   const sair = () => supabase.auth.signOut();
   const temGestao = mostraGestao(empresas);
+  // "+ Nova empresa" só para a gestão do escritório (ou para quem ainda não tem empresa). Membro convidado não vê.
+  const podeCriarEmpresa = empresas.length === 0 || empresas.some((e) => e.via_escritorio);
   const { fechadas, alternar } = useSecoesFechadas();
   const { menuFechado, alternarMenu } = useMenuLateral();
   // Quem é do escritório entra pela tela do escritório (Gestão), fora de qualquer cliente.
@@ -186,7 +188,7 @@ function Layout() {
             <option value="">Abrir uma empresa…</option>
             {doEscritorio.length > 0 && <optgroup label="Clientes do escritório">{doEscritorio.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}</optgroup>}
             {avulsas.length > 0 && <optgroup label="Outras empresas">{avulsas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}</optgroup>}
-            <option value="nova">+ Nova empresa…</option>
+            {podeCriarEmpresa && <option value="nova">+ Nova empresa…</option>}
           </select>
           <span className="muted small" style={{ marginLeft: 'auto' }}>{session?.user.email}</span>
           <button className="btn btn-sm" onClick={sair}>Sair</button>
@@ -263,7 +265,7 @@ function Layout() {
                 {avulsas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
               </optgroup>
             )}
-            <option value="nova">+ Nova empresa…</option>
+            {podeCriarEmpresa && <option value="nova">+ Nova empresa…</option>}
           </select>
           <span className={'badge badge-segmento-' + empresa.segmento} title="Segmento da empresa">{NOME_SEGMENTO[empresa.segmento]}</span>
           {empresa.documento && <span className="muted small">{empresa.documento}</span>}

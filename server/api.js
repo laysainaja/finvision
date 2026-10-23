@@ -73,7 +73,15 @@ export async function criarEmpresa({ nome, documento, segmento = 'servico', escr
   return e;
 }
 
+// Criar empresa: só a gestão (quem é do escritório) ou quem ainda não tem nenhuma empresa (primeiro cadastro).
+// Membro convidado de uma empresa não cria outras.
 api.post('/empresas', async (req, res) => {
+  const pode = await get(
+    `SELECT EXISTS (SELECT 1 FROM escritorio_membros WHERE user_id = :uid)
+        OR NOT EXISTS (SELECT 1 FROM membros WHERE user_id = :uid) AS ok`,
+    { uid: req.userId },
+  );
+  check(pode.ok, 'Só a gestão do escritório pode criar empresas.', 403);
   const nome = optText(req.body.nome);
   check(nome, 'Informe o nome da empresa.');
   const segmento = req.body.segmento ?? 'servico';
