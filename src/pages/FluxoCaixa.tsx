@@ -47,6 +47,16 @@ export function FluxoCaixa() {
         </div>
       </div>
 
+      {/* Alerta curto, logo no topo */}
+      {f?.menor_saldo_futuro && f.menor_saldo_futuro.saldo < 0 && (
+        <div className="aviso-box alerta-box">
+          <Icon name="alerta" />
+          <span>
+            Saldo previsto negativo: <b className="num">{brl(f.menor_saldo_futuro.saldo)}</b> em {rotuloPeriodo(f.menor_saldo_futuro.inicio, f.menor_saldo_futuro.inicio)}.
+          </span>
+        </div>
+      )}
+
       <div className="card">
         <div className="toolbar" style={{ borderBottom: 0 }}>
           <div className="tabs">
@@ -79,16 +89,6 @@ export function FluxoCaixa() {
 
       {f && (
         <>
-          {f.menor_saldo_futuro && f.menor_saldo_futuro.saldo < 0 && (
-            <div className="aviso-box" style={{ background: 'var(--alerta-soft)', color: 'var(--alerta)' }}>
-              <Icon name="alerta" />
-              <span>
-                Atenção: o saldo previsto fica negativo, chegando a <b className="num">{brl(f.menor_saldo_futuro.saldo)}</b> no período de{' '}
-                {rotuloPeriodo(f.menor_saldo_futuro.inicio, f.menor_saldo_futuro.inicio)}. Antecipe recebimentos ou renegocie pagamentos.
-              </span>
-            </div>
-          )}
-
           <div className="grid grid-4">
             <div className="card kpi">
               <div className="kpi-label">Saldo inicial · {dataBR(f.de)}</div>

@@ -99,7 +99,7 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
         {erro && <div className="vazio alerta">{erro}</div>}
         {data && data.sem_tipo > 0 && (
           <div className="aviso-box" style={{ margin: '12px 20px 0' }}>
-            <Icon name="alerta" /> {data.sem_tipo} venda(s) no período estão sem tipo (nova, recorrente ou avulsa) e foram contadas como avulsas. Se alguma for nova venda ou mensalidade, ajuste em Contas a receber → Editar → Tipo de receita.
+            <Icon name="alerta" /> {data.sem_tipo} venda(s) sem tipo de receita, contadas como avulsas.
           </div>
         )}
         {data && (
