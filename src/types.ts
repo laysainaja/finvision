@@ -157,6 +157,7 @@ export interface InfoConvite {
   papel: Papel;
   expirado: boolean;
   aceito: boolean;
+  tem_conta?: boolean;
 }
 
 export interface ContaBancaria {

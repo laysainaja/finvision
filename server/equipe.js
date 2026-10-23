@@ -138,7 +138,9 @@ async function buscarConvite(token) {
 // Público (antes do login): mostra para qual empresa e e-mail é o convite, para a tela de login orientar a pessoa.
 export async function infoConvite(req, res) {
   const c = await buscarConvite(req.params.token);
-  res.json({ empresa_nome: c.empresa_nome, email: c.email, papel: c.papel, expirado: c.expirado, aceito: !!c.aceito_em });
+  // tem_conta: a tela de entrada já abre em "Criar senha" (primeiro acesso) ou em "Entrar" (quem já tem conta).
+  const conta = await get('SELECT 1 AS ok FROM auth.users WHERE lower(email) = lower(:email)', { email: c.email });
+  res.json({ empresa_nome: c.empresa_nome, email: c.email, papel: c.papel, expirado: c.expirado, aceito: !!c.aceito_em, tem_conta: !!conta });
 }
 
 conviteRouter.post('/:token/aceitar', async (req, res) => {
