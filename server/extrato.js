@@ -33,35 +33,41 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
   // Categorias desmarcadas no filtro (0 = sem categoria). Vazio = todas.
   const ocultas = new Set(String(req.query.ocultar_categorias ?? '').split(',').filter((x) => /^\d+$/.test(x)).map(Number));
   const q = optText(req.query.q);
-  const tipo = ['receita', 'despesa'].includes(req.query.tipo) ? req.query.tipo : null;
-  const situacao = ['aberto', 'vencido', 'realizado', 'em_aberto'].includes(req.query.situacao) ? req.query.situacao : null;
-  // Mais filtros (todos opcionais). Valores em centavos; datas 'YYYY-MM-DD'.
+  // Filtros de várias opções (checklist): "sem_<filtro>" traz os valores DESMARCADOS, separados por vírgula
+  // (como as categorias). Ausente = mostra todos.
+  const lista = (k) => {
+    const v = req.query['sem_' + k];
+    return v === undefined || v === '' ? null : new Set(String(v).split(',').map((x) => decodeURIComponent(x)));
+  };
   const qv = (k) => (req.query[k] === undefined || req.query[k] === '' ? null : String(req.query[k]));
   const centavos = (k) => { const v = qv(k); if (v === null) return null; const n = Number(v); check(isCents(n), `Valor inválido em ${k}.`); return n; };
   const data = (k) => { const v = qv(k); if (v === null) return null; check(isDate(v), `Data inválida em ${k}.`); return v; };
   const f = {
-    contato: optId(req.query.contato_id),
-    origem: Object.keys(ORIGENS).includes(qv('origem')) ? qv('origem') : null,
-    recorrencia: ['com', 'sem'].includes(qv('recorrencia')) ? qv('recorrencia') : null,
-    conciliacao: ['conciliado', 'nao_conciliado'].includes(qv('conciliacao')) ? qv('conciliacao') : null,
-    baixa: ['manual', 'conciliacao', 'sem'].includes(qv('baixa')) ? qv('baixa') : null,
-    centro: qv('centro_custo'),
-    forma: qv('forma_pagamento'),
+    tipos: lista('tipos'), // receita | despesa | transferencia
+    situacoes: lista('situacoes'), // aberto (a vencer) | vencido | realizado
+    contatos: lista('contatos'), // ids; '0' = sem cliente/fornecedor
+    origens: lista('origens'),
+    recorrencias: lista('recorrencias'), // com | sem
+    conciliacoes: lista('conciliacoes'), // conciliado | nao_conciliado
+    baixas: lista('baixas'), // manual | conciliacao | sem
+    centros: lista('centros'), // nomes; '__sem' = sem centro de custo
+    formas: lista('formas'), // nomes; '__sem' = não informada
     abertoMin: centavos('aberto_min'), abertoMax: centavos('aberto_max'),
     pagoMin: centavos('pago_min'), pagoMax: centavos('pago_max'),
     vencDe: data('venc_de'), vencAte: data('venc_ate'),
     cadDe: data('cad_de'), cadAte: data('cad_ate'),
     prevDe: data('prev_de'), prevAte: data('prev_ate'),
   };
+  const tem = (desmarcados, v) => !desmarcados || !desmarcados.has(v);
+  // Filtros que valem também para os cartões de resumo (tipo e situação ficam de fora: os cartões são atalhos deles).
   const passa = (l, pago) => {
-    if (f.contato && l.contato_id !== f.contato) return false;
-    if (f.origem && l.origem !== f.origem) return false;
-    if (f.recorrencia && (f.recorrencia === 'com') !== ((l.total_parcelas ?? 0) > 1)) return false;
-    if (f.conciliacao && (f.conciliacao === 'conciliado') !== !!l.extrato_id) return false;
-    if (f.baixa === 'sem' && pago) return false;
-    if (f.baixa && f.baixa !== 'sem' && l.origem_baixa !== f.baixa) return false;
-    if (f.centro && (f.centro === '__sem' ? l.centro_custo : l.centro_custo !== f.centro)) return false;
-    if (f.forma && (f.forma === '__sem' ? l.forma_pagamento : l.forma_pagamento !== f.forma)) return false;
+    if (!tem(f.contatos, String(l.contato_id ?? 0))) return false;
+    if (!tem(f.origens, l.origem)) return false;
+    if (!tem(f.recorrencias, (l.total_parcelas ?? 0) > 1 ? 'com' : 'sem')) return false;
+    if (!tem(f.conciliacoes, l.extrato_id ? 'conciliado' : 'nao_conciliado')) return false;
+    if (!tem(f.baixas, pago ? l.origem_baixa ?? 'manual' : 'sem')) return false;
+    if (!tem(f.centros, l.centro_custo ?? '__sem')) return false;
+    if (!tem(f.formas, l.forma_pagamento ?? '__sem')) return false;
     if (f.abertoMin !== null || f.abertoMax !== null) {
       if (pago || (f.abertoMin !== null && l.valor < f.abertoMin) || (f.abertoMax !== null && l.valor > f.abertoMax)) return false;
     }
@@ -130,11 +136,8 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     // para que funcionem como atalhos de filtro.
     resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
 
-    if (tipo && (tipo === 'receita') !== receita) continue;
-    if (situacao === 'realizado' && !pago) continue;
-    if (situacao === 'em_aberto' && pago) continue;
-    if (situacao === 'aberto' && sit !== 'aberto') continue;
-    if (situacao === 'vencido' && sit !== 'vencido') continue;
+    if (!tem(f.tipos, l.transferencia_id ? 'transferencia' : receita ? 'receita' : 'despesa')) continue;
+    if (!tem(f.situacoes, pago ? 'realizado' : sit)) continue;
     itens.push({ ...l, situacao: sit, valor_extrato: receita ? valor : -valor, saldo: pago ? saldo : null });
   }
   resumo.total_periodo = resumo.receitas_aberto + resumo.receitas_realizadas - resumo.despesas_aberto - resumo.despesas_realizadas;

@@ -8,7 +8,8 @@ import { exportarCSV } from '../lib/exportar';
 import { BaixaModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
 import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
 import { FiltroCategorias, SEM_CATEGORIA } from '../components/FiltroCategorias';
-import { MaisFiltros, FILTROS_VAZIOS, contarFiltros, paramsFiltros, type FiltrosExtras } from '../components/MaisFiltros';
+import { MaisFiltros, filtrosVazios, contarFiltros, paramsFiltros, OPCOES_TIPO, OPCOES_SITUACAO, type FiltrosExtras } from '../components/MaisFiltros';
+import { FiltroChecklist } from '../components/FiltroChecklist';
 
 const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
   recebido: { label: 'Recebido', classe: 'badge-pago' },
@@ -17,8 +18,6 @@ const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
   vencido: { label: 'Vencido', classe: 'badge-vencido' },
 };
 
-type Tipo = '' | 'receita' | 'despesa';
-type Situacao = '' | 'em_aberto' | 'realizado' | 'aberto' | 'vencido';
 const OPCOES_POR_PAGINA = [10, 25, 50, 100];
 const CHAVE_POR_PAGINA = 'finvision:extrato-por-pagina';
 const lerPorPagina = () => { try { const n = Number(localStorage.getItem(CHAVE_POR_PAGINA)); return OPCOES_POR_PAGINA.includes(n) ? n : 50; } catch { return 50; } };
@@ -83,10 +82,8 @@ export function Extrato() {
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
   const [conta, setConta] = useState('');
-  const [tipo, setTipo] = useState<Tipo>('');
-  const [situacao, setSituacao] = useState<Situacao>('');
   const [ocultas, setOcultas] = useState<Set<number>>(new Set());
-  const [extras, setExtras] = useState<FiltrosExtras>(FILTROS_VAZIOS);
+  const [extras, setExtras] = useState<FiltrosExtras>(filtrosVazios);
   const [maisFiltros, setMaisFiltros] = useState(false);
   const [pagina, setPagina] = useState(0);
   const [porPagina, setPorPagina] = useState(lerPorPagina);
@@ -107,7 +104,7 @@ export function Extrato() {
   }, [busca]);
 
   const { data, erro } = useApi<Movimentacoes>(
-    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, tipo, situacao, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), v: versao })}`,
+    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), v: versao })}`,
   );
   useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
 
@@ -116,20 +113,25 @@ export function Extrato() {
   const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina));
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
-  const filtrosAtivos = [q, conta, tipo, situacao].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
+  const filtrosAtivos = [q, conta].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
 
-  const atalho = (t: Tipo, s: Situacao) => {
-    const mesmo = tipo === t && situacao === s;
-    setTipo(mesmo ? '' : t);
-    setSituacao(mesmo ? '' : s);
+  // Cartões de resumo: atalho para o tipo + situação (clicar de novo desfaz).
+  const desmarcadosDo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => ({
+    tipos: new Set(['receita', 'despesa', 'transferencia'].filter((x) => x !== t)),
+    situacoes: new Set(s === 'em_aberto' ? ['realizado'] : ['aberto', 'vencido']),
+  });
+  const igual = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+  const cartaoAtivo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => {
+    const d = desmarcadosDo(t, s);
+    return igual(extras.tipos, d.tipos) && igual(extras.situacoes, d.situacoes);
   };
+  const atalho = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') =>
+    setExtras((x) => (cartaoAtivo(t, s) ? { ...x, tipos: new Set(), situacoes: new Set() } : { ...x, ...desmarcadosDo(t, s) }));
   const limpar = () => {
     setBusca('');
     setConta('');
-    setTipo('');
-    setSituacao('');
     setOcultas(new Set());
-    setExtras(FILTROS_VAZIOS);
+    setExtras(filtrosVazios());
   };
   const concluir = () => {
     setNovo(null);
@@ -156,8 +158,8 @@ export function Extrato() {
     if (!data) return;
     const nomeConta = conta ? contas.find((c) => String(c.id) === conta)?.nome ?? '' : 'todas';
     const filtros = [
-      tipo && (tipo === 'receita' ? 'só receitas' : 'só despesas'),
-      situacao && { em_aberto: 'em aberto', aberto: 'a vencer', vencido: 'vencidos', realizado: 'realizados' }[situacao],
+      extras.tipos.size > 0 && `tipo: ${OPCOES_TIPO.filter((o) => !extras.tipos.has(o.valor)).map((o) => o.label.toLowerCase()).join(', ') || 'nenhum'}`,
+      extras.situacoes.size > 0 && `situação: ${OPCOES_SITUACAO.filter((o) => !extras.situacoes.has(o.valor)).map((o) => o.label.toLowerCase()).join(', ') || 'nenhuma'}`,
       ocultas.size > 0 && `sem as categorias ${[...ocultas].map((id) => id === SEM_CATEGORIA ? 'Sem categoria' : categorias.find((c) => c.id === id)?.nome ?? '').join(', ')}`,
       q && `busca "${q}"`,
       contarFiltros(extras) > 0 && `mais ${contarFiltros(extras)} filtro(s)`,
@@ -253,22 +255,12 @@ export function Extrato() {
         </div>
         {maisFiltros && (
           <div className="toolbar filtros-extra">
-            <label className="field-inline">Tipo
-              <select className="select input" value={tipo} onChange={(e) => setTipo(e.target.value as Tipo)}>
-                <option value="">Receitas e despesas</option>
-                <option value="receita">Só receitas</option>
-                <option value="despesa">Só despesas</option>
-              </select>
-            </label>
-            <label className="field-inline">Situação
-              <select className="select input" value={situacao} onChange={(e) => setSituacao(e.target.value as Situacao)}>
-                <option value="">Todas</option>
-                <option value="em_aberto">Em aberto (a vencer e vencidos)</option>
-                <option value="aberto">A vencer</option>
-                <option value="vencido">Vencidos</option>
-                <option value="realizado">Realizados (pagos/recebidos)</option>
-              </select>
-            </label>
+            <div className="field-inline">Tipo
+              <FiltroChecklist opcoes={OPCOES_TIPO} desmarcados={extras.tipos} onChange={(v) => setExtras((x) => ({ ...x, tipos: v }))} />
+            </div>
+            <div className="field-inline">Situação
+              <FiltroChecklist opcoes={OPCOES_SITUACAO} desmarcados={extras.situacoes} onChange={(v) => setExtras((x) => ({ ...x, situacoes: v }))} rotuloTodos="Todas" />
+            </div>
             <div className="field-inline">Categorias
               <FiltroCategorias categorias={categorias} ocultas={ocultas} onChange={setOcultas} />
             </div>
@@ -279,12 +271,12 @@ export function Extrato() {
         {data && (
           <div className="cartoes-extrato">
             {cartoes.map(([t, s, label, valor, cor]) => (
-              <button key={label} className={'cartao-extrato' + (tipo === t && situacao === s ? ' ativo' : '')} onClick={() => atalho(t, s)}>
+              <button key={label} className={'cartao-extrato' + (cartaoAtivo(t, s) ? ' ativo' : '')} onClick={() => atalho(t, s)}>
                 <span className="kpi-label">{label} (R$)</span>
                 <span className={'cartao-valor num ' + cor}>{brl(valor)}</span>
               </button>
             ))}
-            <button className={'cartao-extrato total' + (!tipo && !situacao ? ' ativo' : '')} onClick={() => (setTipo(''), setSituacao(''))}>
+            <button className={'cartao-extrato total' + (!extras.tipos.size && !extras.situacoes.size ? ' ativo' : '')} onClick={() => setExtras((x) => ({ ...x, tipos: new Set(), situacoes: new Set() }))}>
               <span className="kpi-label">Total do período (R$)</span>
               <span className={'cartao-valor num ' + (data.resumo.total_periodo < 0 ? 'alerta' : '')}>{brl(data.resumo.total_periodo)}</span>
             </button>

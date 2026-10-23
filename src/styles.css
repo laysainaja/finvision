@@ -458,3 +458,4 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .filtros-extra { flex-wrap: wrap; }
 .filtro-par { display: flex; align-items: center; gap: 6px; }
 .filtro-par .input { width: 140px; }
+.filtro-cat-rotulo { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
