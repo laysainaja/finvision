@@ -245,6 +245,9 @@ export interface Lancamento {
   multa: number;
   desconto: number;
   restante_de: number | null;
+  centro_custo: string | null;
+  forma_pagamento: string | null;
+  data_prevista: string | null;
   origem_baixa: 'manual' | 'conciliacao' | null;
   grupo_parcelas: string | null;
   parcela: number | null;

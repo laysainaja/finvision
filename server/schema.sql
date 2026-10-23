@@ -193,6 +193,11 @@ alter table lancamentos add column if not exists restante_de bigint references l
 alter table lancamentos add column if not exists transferencia_id uuid;
 create index if not exists ix_lanc_transferencia on lancamentos (transferencia_id) where transferencia_id is not null;
 
+-- Centro de custo (texto livre), forma de pagamento e data prevista (quando se espera pagar/receber, se diferente do vencimento).
+alter table lancamentos add column if not exists centro_custo text;
+alter table lancamentos add column if not exists forma_pagamento text;
+alter table lancamentos add column if not exists data_prevista date;
+
 -- Valores do Forecast informados à mão por mês (ex.: clientes totais, quando o cliente paga adiantado).
 create table if not exists forecast_ajustes (
   empresa_id bigint not null references empresas(id) on delete cascade,

@@ -335,7 +335,12 @@ async function lerLancamento(body, eid) {
     vencimento: body.vencimento,
     documento: optText(body.documento),
     observacao: optText(body.observacao),
+    centro_custo: optText(body.centro_custo),
+    forma_pagamento: optText(body.forma_pagamento),
+    data_prevista: body.data_prevista || null,
   };
+  check(l.forma_pagamento === null || FORMAS_PAGAMENTO.includes(l.forma_pagamento), 'Forma de pagamento inválida.');
+  check(l.data_prevista === null || isDate(l.data_prevista), 'Data prevista inválida.');
   check(['pagar', 'receber'].includes(l.tipo), 'Tipo inválido.');
   check(l.descricao, 'Informe a descrição.');
   check(isCents(l.valor) && l.valor > 0, 'Informe um valor maior que zero.');
@@ -352,6 +357,7 @@ async function lerLancamento(body, eid) {
 }
 
 export const TIPOS_RECEITA = ['recorrente', 'nova', 'avulsa'];
+export const FORMAS_PAGAMENTO = ['Pix', 'Boleto bancário', 'Transferência bancária', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro', 'Débito automático', 'Cheque', 'Outro'];
 
 /**
  * Sugestão do tipo de receita quando o usuário deixa em "Automático":
@@ -377,14 +383,14 @@ async function sugerirTipoReceita(eid, contatoId, vencimento, n, modo, descricao
 
 const INSERT_LANC = `INSERT INTO lancamentos
   (empresa_id, tipo, descricao, contato, contato_id, tipo_receita, categoria_id, conta_bancaria_id, valor, vencimento, documento, observacao,
-   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas, restante_de, transferencia_id)
+   data_pagamento, valor_pago, origem_baixa, grupo_parcelas, parcela, total_parcelas, restante_de, transferencia_id, centro_custo, forma_pagamento, data_prevista)
   VALUES (:empresa_id, :tipo, :descricao, :contato, :contato_id, :tipo_receita, :categoria_id, :conta_bancaria_id, :valor, :vencimento, :documento, :observacao,
-   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas, :restante_de, :transferencia_id)
+   :data_pagamento, :valor_pago, :origem_baixa, :grupo_parcelas, :parcela, :total_parcelas, :restante_de, :transferencia_id, :centro_custo, :forma_pagamento, :data_prevista)
   RETURNING id`;
 
 export async function inserirLancamento(l) {
   const r = await get(INSERT_LANC, {
-    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null, restante_de: null, transferencia_id: null,
+    contato_id: null, tipo_receita: null, data_pagamento: null, valor_pago: null, origem_baixa: null, grupo_parcelas: null, parcela: null, total_parcelas: null, restante_de: null, transferencia_id: null, centro_custo: null, forma_pagamento: null, data_prevista: null,
     ...l,
   });
   return r.id;
@@ -485,7 +491,8 @@ e.put('/lancamentos/:id', async (req, res) => {
   await all(
     `UPDATE lancamentos SET descricao = :descricao, contato = :contato, contato_id = :contato_id, tipo_receita = :tipo_receita,
        categoria_id = :categoria_id, conta_bancaria_id = :conta_bancaria_id,
-       valor = :valor, vencimento = :vencimento, documento = :documento, observacao = :observacao
+       valor = :valor, vencimento = :vencimento, documento = :documento, observacao = :observacao,
+       centro_custo = :centro_custo, forma_pagamento = :forma_pagamento, data_prevista = :data_prevista
      WHERE id = :id AND empresa_id = :eid`,
     { ...l, id: atual.id, eid: req.eid },
   );
@@ -503,7 +510,7 @@ e.put('/lancamentos/:id', async (req, res) => {
     await transaction(async () => {
       const r = await all(
         `UPDATE lancamentos SET descricao = :descricao, contato = :contato, contato_id = :contato_id, categoria_id = :categoria_id,
-           documento = :documento, observacao = :observacao ${atual.tipo === 'receber' && req.body.tipo_receita && req.body.tipo_receita !== 'auto' ? ', tipo_receita = :tipo_receita' : ''}
+           documento = :documento, observacao = :observacao, centro_custo = :centro_custo, forma_pagamento = :forma_pagamento ${atual.tipo === 'receber' && req.body.tipo_receita && req.body.tipo_receita !== 'auto' ? ', tipo_receita = :tipo_receita' : ''}
          WHERE ${alvo} RETURNING id`,
         p,
       );
@@ -567,7 +574,7 @@ async function baixar(l, { data_pagamento, valor_pago, conta_bancaria_id, juros 
       empresa_id: eid, tipo: l.tipo, descricao: l.descricao, contato: l.contato, contato_id: l.contato_id, tipo_receita: l.tipo_receita,
       categoria_id: l.categoria_id, conta_bancaria_id: l.conta_bancaria_id, valor: l.valor - quitado, vencimento: vencRestante,
       documento: l.documento, observacao: [`Restante do pagamento parcial de ${data_pagamento.split('-').reverse().join('/')}`, l.observacao].filter(Boolean).join(' — '),
-      grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id,
+      grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id, centro_custo: l.centro_custo, forma_pagamento: l.forma_pagamento,
     });
   });
 }

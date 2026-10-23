@@ -5,6 +5,8 @@ import { brl, dataBR, hoje, addMeses } from '../lib/format';
 import type { Contato, Lancamento, TipoLancamento, TipoReceita } from '../types';
 import { Field, Modal, MoneyInput, useToast } from './ui';
 
+export const FORMAS_PAGAMENTO = ['Pix', 'Boleto bancário', 'Transferência bancária', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro', 'Débito automático', 'Cheque', 'Outro'];
+
 export const NOME_TIPO = {
   pagar: { singular: 'conta a pagar', acao: 'Pagar', feito: 'Pago', contato: 'Fornecedor', data: 'Data do pagamento' },
   receber: { singular: 'conta a receber', acao: 'Receber', feito: 'Recebido', contato: 'Cliente', data: 'Data do recebimento' },
@@ -47,6 +49,7 @@ export function LancamentoForm({
   const nomes = NOME_TIPO[tipo];
   const editando = !!lancamento;
   // Sugestões do cadastro de clientes/fornecedores; um nome novo é cadastrado sozinho ao salvar.
+  const centros = useApi<{ centros_custo: string[] }>(`${base}/movimentacoes/opcoes`);
   const cadastro = useApi<Contato[]>(`${base}/contatos?tipo=${tipo === 'pagar' ? 'fornecedor' : 'cliente'}`);
   const sugestoes = [...new Set([...(cadastro.data?.map((c) => c.nome) ?? []), ...contatos])].sort((a, b) => a.localeCompare(b));
   const [f, setF] = useState({
@@ -59,6 +62,9 @@ export function LancamentoForm({
     vencimento: lancamento?.vencimento ?? hoje(),
     documento: lancamento?.documento ?? '',
     observacao: lancamento?.observacao ?? '',
+    centro_custo: lancamento?.centro_custo ?? '',
+    forma_pagamento: lancamento?.forma_pagamento ?? '',
+    data_prevista: lancamento?.data_prevista ?? '',
     parcelas: 1,
     repeticao: 'parcelar' as 'parcelar' | 'repetir',
     jaPago: false,
@@ -83,6 +89,9 @@ export function LancamentoForm({
       vencimento: f.vencimento,
       documento: f.documento,
       observacao: f.observacao,
+      centro_custo: f.centro_custo,
+      forma_pagamento: f.forma_pagamento || null,
+      data_prevista: f.data_prevista || null,
       ...(!editando && {
         parcelas: f.parcelas,
         repeticao: f.repeticao,
@@ -170,6 +179,19 @@ export function LancamentoForm({
         </Field>
         <Field label="Nº do documento / NF">
           <input className="input" value={f.documento} onChange={(e) => set('documento', e.target.value)} />
+        </Field>
+        <Field label="Forma de pagamento">
+          <select className="select input" value={f.forma_pagamento} onChange={(e) => set('forma_pagamento', e.target.value)}>
+            <option value="">Não informada</option>
+            {FORMAS_PAGAMENTO.map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
+        </Field>
+        <Field label="Centro de custo">
+          <input className="input" list="centros-custo" value={f.centro_custo} onChange={(e) => set('centro_custo', e.target.value)} placeholder="Opcional (ex.: Operacional)" />
+          <datalist id="centros-custo">{centros.data?.centros_custo.map((c) => <option key={c} value={c} />)}</datalist>
+        </Field>
+        <Field label={tipo === 'pagar' ? 'Previsão de pagamento' : 'Previsão de recebimento'}>
+          <input className="input" type="date" value={f.data_prevista} onChange={(e) => set('data_prevista', e.target.value)} title="Se espera pagar/receber numa data diferente do vencimento" />
         </Field>
 
         {!editando && (

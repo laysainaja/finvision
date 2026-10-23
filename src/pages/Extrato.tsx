@@ -8,6 +8,7 @@ import { exportarCSV } from '../lib/exportar';
 import { BaixaModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
 import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
 import { FiltroCategorias, SEM_CATEGORIA } from '../components/FiltroCategorias';
+import { MaisFiltros, FILTROS_VAZIOS, contarFiltros, paramsFiltros, type FiltrosExtras } from '../components/MaisFiltros';
 
 const SITUACAO: Record<SituacaoExtrato, { label: string; classe: string }> = {
   recebido: { label: 'Recebido', classe: 'badge-pago' },
@@ -85,6 +86,7 @@ export function Extrato() {
   const [tipo, setTipo] = useState<Tipo>('');
   const [situacao, setSituacao] = useState<Situacao>('');
   const [ocultas, setOcultas] = useState<Set<number>>(new Set());
+  const [extras, setExtras] = useState<FiltrosExtras>(FILTROS_VAZIOS);
   const [maisFiltros, setMaisFiltros] = useState(false);
   const [pagina, setPagina] = useState(0);
   const [porPagina, setPorPagina] = useState(lerPorPagina);
@@ -105,7 +107,7 @@ export function Extrato() {
   }, [busca]);
 
   const { data, erro } = useApi<Movimentacoes>(
-    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, tipo, situacao, ocultar_categorias: [...ocultas].sort().join(','), v: versao })}`,
+    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, tipo, situacao, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), v: versao })}`,
   );
   useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
 
@@ -114,7 +116,7 @@ export function Extrato() {
   const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina));
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
-  const filtrosAtivos = [q, conta, tipo, situacao].filter(Boolean).length + (ocultas.size ? 1 : 0);
+  const filtrosAtivos = [q, conta, tipo, situacao].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
 
   const atalho = (t: Tipo, s: Situacao) => {
     const mesmo = tipo === t && situacao === s;
@@ -127,6 +129,7 @@ export function Extrato() {
     setTipo('');
     setSituacao('');
     setOcultas(new Set());
+    setExtras(FILTROS_VAZIOS);
   };
   const concluir = () => {
     setNovo(null);
@@ -157,6 +160,7 @@ export function Extrato() {
       situacao && { em_aberto: 'em aberto', aberto: 'a vencer', vencido: 'vencidos', realizado: 'realizados' }[situacao],
       ocultas.size > 0 && `sem as categorias ${[...ocultas].map((id) => id === SEM_CATEGORIA ? 'Sem categoria' : categorias.find((c) => c.id === id)?.nome ?? '').join(', ')}`,
       q && `busca "${q}"`,
+      contarFiltros(extras) > 0 && `mais ${contarFiltros(extras)} filtro(s)`,
     ].filter(Boolean).join(', ') || 'nenhum';
     const linhas: (string | number | null)[][] = [
       [dataBR(de), 'Saldo anterior', null, null, null, null, null, null, null, data.saldo_inicial],
@@ -268,6 +272,7 @@ export function Extrato() {
             <div className="field-inline">Categorias
               <FiltroCategorias categorias={categorias} ocultas={ocultas} onChange={setOcultas} />
             </div>
+            <MaisFiltros valor={extras} onChange={setExtras} />
           </div>
         )}
 

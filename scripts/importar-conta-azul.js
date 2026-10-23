@@ -102,6 +102,9 @@ const POR_DESCRICAO = [
 const DESCRICAO_E_CONTATO = new Set(['Receitas de Serviços', 'Receitas de Vendas', 'Remuneração de Autônomos', 'Remuneração de Estagiários', 'Pró-labore', 'Plataforma', 'Software / Licença de Uso', 'Comissões de Vendedores']);
 const GENERICA = /^(transacao|pagamento via|cobranca|venda \d|antecipacao|origem:|baixa da|fatura|pix)/i;
 
+// Forma de pagamento do Conta Azul → FinVision.
+const FORMA = { 'Pagamento instantâneo': 'Pix', 'Cobrança PIX': 'Pix', 'Boleto bancário': 'Boleto bancário', 'Transferência bancária': 'Transferência bancária', 'Cartão de crédito': 'Cartão de crédito', 'Cartão de débito': 'Cartão de débito', 'Dinheiro': 'Dinheiro', 'Outro': 'Outro' };
+
 // ---------- Leitura ----------
 const iso = (d) => (/^\d{2}\/\d{2}\/\d{4}$/.test(d) ? d.split('/').reverse().join('-') : null);
 const centavos = (v) => Math.round(Math.abs(Number(String(v).replace(',', '.')) || 0) * 100);
@@ -140,6 +143,9 @@ for (const [i, l] of linhas.entries()) {
     documento: String(l['Nota fiscal'] ?? '').trim() || null,
     observacao: [MARCA, String(l['Observações'] ?? '').trim()].filter(Boolean).join(' — '),
     recorrente: l['Recorrência'] === 'Com recorrência' && total > 1 ? { parcela, total } : null,
+    formaPagamento: FORMA[String(l['Forma de pgto/recbto'] ?? '').trim()] ?? null,
+    centroCusto: String(l['Centro de Custo 1'] ?? '').trim() || null,
+    dataPrevista: iso(l['Data prevista']),
     novaVenda: /nova venda/i.test(descricao),
   });
 }
@@ -269,6 +275,7 @@ await transaction(async () => {
       conta_bancaria_id: idConta.get(it.conta), valor: it.valor, vencimento: it.vencimento, documento: it.documento, observacao: it.observacao,
       data_pagamento: it.pagamento, valor_pago: it.valorPago, origem_baixa: it.pagamento ? 'manual' : null,
       grupo_parcelas: it.grupo ?? null, parcela: it.recorrente?.parcela ?? null, total_parcelas: it.recorrente?.total ?? null,
+      forma_pagamento: it.formaPagamento, centro_custo: it.centroCusto, data_prevista: it.dataPrevista,
     };
   });
   const COLUNAS = Object.keys(registros[0]).join(', ');
