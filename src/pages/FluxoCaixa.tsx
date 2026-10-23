@@ -52,7 +52,8 @@ export function FluxoCaixa() {
         <div className="aviso-box alerta-box">
           <Icon name="alerta" />
           <span>
-            Saldo previsto negativo: <b className="num">{brl(f.menor_saldo_futuro.saldo)}</b> em {rotuloPeriodo(f.menor_saldo_futuro.inicio, f.menor_saldo_futuro.inicio)}.
+            Atenção: o saldo previsto fica negativo, chegando a <b className="num">{brl(f.menor_saldo_futuro.saldo)}</b> no período de{' '}
+            {rotuloPeriodo(f.menor_saldo_futuro.inicio, f.menor_saldo_futuro.inicio)}. Antecipe recebimentos ou renegocie pagamentos.
           </span>
         </div>
       )}

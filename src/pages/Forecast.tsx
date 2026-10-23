@@ -81,6 +81,11 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
           <p>Acompanhamento dos meses que passaram e projeção dos próximos, com base nas contas lançadas (competência).</p>
         </div>
       </div>
+      {data && data.sem_tipo > 0 && (
+        <div className="aviso-box">
+          <Icon name="alerta" /> {data.sem_tipo} venda(s) no período estão sem tipo (nova, recorrente ou avulsa) e foram contadas como avulsas. Se alguma for nova venda ou mensalidade, ajuste em Contas a receber → Editar → Tipo de receita.
+        </div>
+      )}
       <div className="card">
         <div className="toolbar">
           <div className="tabs">
@@ -97,11 +102,6 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
           <button className="btn" style={{ marginLeft: 'auto' }} onClick={exportar}><Icon name="upload" /> Exportar planilha</button>
         </div>
         {erro && <div className="vazio alerta">{erro}</div>}
-        {data && data.sem_tipo > 0 && (
-          <div className="aviso-box" style={{ margin: '12px 20px 0' }}>
-            <Icon name="alerta" /> {data.sem_tipo} venda(s) sem tipo de receita, contadas como avulsas.
-          </div>
-        )}
         {data && (
           <div className="table-wrap">
             <table className="tabela-relatorio tabela-forecast">
