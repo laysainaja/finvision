@@ -115,7 +115,7 @@ export function Extrato() {
   const selecao = itens.filter((i) => selecionados.has(i.id));
   const filtrosAtivos = [q, conta].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
 
-  // Cartões de resumo: atalho para o tipo + situação (clicar de novo desfaz).
+  // Cartões de resumo: atalho para o tipo + situação (clicar de novo desfaz). Os valores seguem todos os filtros.
   const desmarcadosDo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => ({
     tipos: new Set(['receita', 'despesa', 'transferencia'].filter((x) => x !== t)),
     situacoes: new Set(s === 'em_aberto' ? ['realizado'] : ['aberto', 'vencido']),

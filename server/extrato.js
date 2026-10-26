@@ -59,7 +59,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     prevDe: data('prev_de'), prevAte: data('prev_ate'),
   };
   const tem = (desmarcados, v) => !desmarcados || !desmarcados.has(v);
-  // Filtros que valem também para os cartões de resumo (tipo e situação ficam de fora: os cartões são atalhos deles).
+  // Filtros da lista (os cartões de resumo somam só o que passa por todos eles).
   const passa = (l, pago) => {
     if (!tem(f.contatos, String(l.contato_id ?? 0))) return false;
     if (!tem(f.origens, l.origem)) return false;
@@ -141,12 +141,10 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     if (ocultas.has(l.categoria_id ?? 0)) continue;
     if (!passa(l, pago)) continue;
     if (termo && ![l.descricao, l.contato, l.documento, l.categoria_nome].some((t) => normalizar(t).includes(termo)) && !(buscaValor && bateValor(l))) continue;
-    // Os cartões somam o período com busca/conta/categoria, mas sem o filtro de tipo e situação,
-    // para que funcionem como atalhos de filtro.
-    resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
-
     if (!tem(f.tipos, l.transferencia_id ? 'transferencia' : receita ? 'receita' : 'despesa')) continue;
     if (!tem(f.situacoes, pago ? 'realizado' : sit)) continue;
+    // Os cartões somam exatamente o que está na lista: qualquer filtro (inclusive tipo e situação) muda os números.
+    resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
     itens.push({ ...l, situacao: sit, valor_extrato: receita ? valor : -valor, saldo: pago ? saldo : null });
   }
   resumo.total_periodo = resumo.receitas_aberto + resumo.receitas_realizadas - resumo.despesas_aberto - resumo.despesas_realizadas;
