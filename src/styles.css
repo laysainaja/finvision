@@ -459,3 +459,15 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .filtro-par { display: flex; align-items: center; gap: 6px; }
 .filtro-par .input { width: 140px; }
 .filtro-cat-rotulo { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Categorias: nome à esquerda numa linha só, depois DRE, grupo do Forecast e ações em colunas fixas */
+.lista-categorias { container-type: inline-size; }
+.categoria-linha { display: grid; grid-template-columns: minmax(0, 1fr) 260px auto; gap: 10px; align-items: center; padding: 8px 20px; border-bottom: 1px solid var(--border); }
+.categoria-linha.com-grupo { grid-template-columns: minmax(0, 1fr) 260px 190px auto; }
+.categoria-linha .select { height: 32px; width: 100%; }
+.categoria-nome { overflow-wrap: anywhere; font-weight: 500; }
+.categoria-acoes { white-space: nowrap; display: flex; }
+@container (max-width: 620px) {
+  .categoria-linha, .categoria-linha.com-grupo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .categoria-nome { grid-column: 1 / -1; }
+}

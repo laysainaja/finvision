@@ -136,7 +136,7 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
   };
 
   return (
-    <div className="card">
+    <div className="card lista-categorias">
       <div className="card-header">
         <div>
           <h2>{tipo === 'receita' ? 'Categorias de receita' : 'Categorias de despesa'}</h2>
@@ -144,17 +144,17 @@ function ListaCategorias({ tipo }: { tipo: Categoria['tipo'] }) {
         </div>
       </div>
       {lista.map((c) => (
-        <div key={c.id} className="conta-linha" style={{ gap: 10 }}>
-          <span style={{ flex: 1, minWidth: 0 }}>{c.nome}</span>
-          <select className="select input" style={{ height: 30, maxWidth: 230 }} value={c.dre ?? linhas[0]} onChange={(e) => mudarDre(c, e.target.value as LinhaDRE)} aria-label={`Linha da DRE de ${c.nome}`}>
+        <div key={c.id} className={'categoria-linha' + (tipo === 'despesa' ? ' com-grupo' : '')}>
+          <span className="categoria-nome">{c.nome}</span>
+          <select className="select input" value={c.dre ?? linhas[0]} onChange={(e) => mudarDre(c, e.target.value as LinhaDRE)} aria-label={`Linha da DRE de ${c.nome}`}>
             {linhas.map((l) => <option key={l} value={l}>{NOME_LINHA_DRE[l]}</option>)}
           </select>
           {tipo === 'despesa' && (
-            <select className="select input" style={{ height: 30, maxWidth: 190 }} value={c.grupo_forecast ?? 'fixo'} onChange={(e) => mudarGrupo(c, e.target.value as GrupoForecast)} aria-label={`Grupo do Forecast de ${c.nome}`}>
+            <select className="select input" value={c.grupo_forecast ?? 'fixo'} onChange={(e) => mudarGrupo(c, e.target.value as GrupoForecast)} aria-label={`Grupo do Forecast de ${c.nome}`}>
               {(Object.keys(NOME_GRUPO_FORECAST) as GrupoForecast[]).map((g) => <option key={g} value={g}>{NOME_GRUPO_FORECAST[g]}</option>)}
             </select>
           )}
-          <span style={{ whiteSpace: 'nowrap' }}>
+          <span className="categoria-acoes">
             <button className="btn btn-ghost btn-sm" onClick={() => renomear(c)} aria-label="Renomear"><Icon name="editar" /></button>
             <button className="btn btn-ghost btn-sm btn-danger" onClick={() => excluir(c)} aria-label="Excluir"><Icon name="lixo" /></button>
           </span>
@@ -241,10 +241,9 @@ export function Cadastros() {
         </div>
       </div>
 
-      <div className="grid grid-2">
-        <ListaCategorias tipo="receita" />
-        <ListaCategorias tipo="despesa" />
-      </div>
+      {/* Uma lista embaixo da outra, na largura toda: o nome da categoria cabe numa linha só */}
+      <ListaCategorias tipo="receita" />
+      <ListaCategorias tipo="despesa" />
 
       {editarEmpresa && empresa && <EmpresaModal empresa={empresa} onClose={() => setEditarEmpresa(false)} />}
       {conta && <ContaModal conta={conta.conta} onClose={() => setConta(null)} />}
