@@ -5,11 +5,13 @@ import { addMeses, brl, dataBR, fimMes, hoje, inicioMes, mesCurto, num } from '.
 import { exportarCSV, pctCSV } from '../lib/exportar';
 import type { Regime, RelatorioAnalise, RelatorioDRE, RelatorioVencidos, TipoLancamento } from '../types';
 import { Icon, Modal } from '../components/ui';
+import { SeletorPeriodo, periodoDe, type Periodo as PeriodoSel } from '../components/SeletorPeriodo';
 
 // ---------- Catálogo ----------
 
 type Segmento = 'servico' | 'produto';
 export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: string; segmento?: Segmento }[] = [
+  { id: 'mensal', nome: 'Relatório', descricao: 'O que foi realizado no mês: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
   { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
   { id: 'margem', nome: 'Margem bruta e CMV', descricao: 'Quanto sobra das vendas depois do custo das mercadorias, mês a mês.', grupo: 'Resultado', segmento: 'produto' },
@@ -71,7 +73,6 @@ function Cabecalho({ titulo, descricao }: { titulo: string; descricao: string })
   return (
     <div className="page-header">
       <div>
-        <a href="#/relatorios" className="small muted">← Relatórios</a>
         <h1>{titulo}</h1>
         <p>{descricao}</p>
       </div>
@@ -475,6 +476,81 @@ export function Vencidos() {
         )}
       </div>
       <p className="muted small" style={{ margin: 0 }}>Para cobrar ou pagar, abra <a href={`#/${tipo}`}>{tipo === 'receber' ? 'Contas a receber' : 'Contas a pagar'}</a> e filtre por "Vencidos".</p>
+    </>
+  );
+}
+
+// ---------- Relatório do mês (realizado) ----------
+
+interface RelMensal { de: string; ate: string; receitas: number; despesas: number; total: number; n_receitas: number; n_despesas: number; clientes: { nome: string; total: number; n: number }[]; pagamentos: { nome: string; total: number; n: number }[] }
+
+/** Tabela com barra e participação no total (receita por cliente / pagamentos por categoria). */
+function TabelaParticipacao({ titulo, coluna, itens, total, cor }: { titulo: string; coluna: string; itens: RelMensal['clientes']; total: number; cor: string }) {
+  const maior = itens[0]?.total || 1;
+  return (
+    <div className="card">
+      <div className="card-header"><h2>{titulo}</h2><span className="muted small">{itens.length} {itens.length === 1 ? 'item' : 'itens'} · {brl(total)}</span></div>
+      {itens.length === 0 ? <div className="vazio">Nada realizado neste período.</div> : (
+        <div className="table-wrap">
+          <table className="tabela-relatorio">
+            <thead><tr><th className="col-fixa">{coluna}</th><th className="r">Lançamentos</th><th className="r">Total</th><th className="r">AV%</th><th style={{ width: '28%' }} /></tr></thead>
+            <tbody>
+              {itens.map((i) => (
+                <tr key={i.nome}>
+                  <td className="col-fixa">{i.nome}</td>
+                  <td className="r num muted">{i.n}</td>
+                  <td className="r num" data-soma={i.total} data-formato="moeda"><b>{num(i.total)}</b></td>
+                  <td className="r num muted small" data-soma={total ? Math.round((i.total / total) * 10000) / 100 : 0} data-formato="pct">{total ? `${(Math.round((i.total / total) * 1000) / 10).toLocaleString('pt-BR')}%` : ''}</td>
+                  <td><span className="barra-h-trilho"><span style={{ width: `${(i.total / maior) * 100}%`, background: cor }} /></span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function RelatorioMensal() {
+  const { base, versao, empresa } = useEmpresa();
+  const [periodo, setPeriodo] = useState<PeriodoSel>(() => periodoDe('mes'));
+  const { data, erro } = useApi<RelMensal>(`${base}/relatorios/mensal${qs({ de: periodo.de, ate: periodo.ate, v: versao })}`);
+  const exportar = () => data && exportarCSV(`Relatório ${empresa?.nome} ${data.de} a ${data.ate}`, ['', 'Lançamentos', 'Valor (R$)'], [
+    ['Receitas realizadas', data.n_receitas, data.receitas], ['Despesas realizadas', data.n_despesas, data.despesas], ['Total do período', null, data.total], [],
+    ['RECEITA POR CLIENTE'], ...data.clientes.map((c) => [c.nome, c.n, c.total]), [],
+    ['ANÁLISE DE PAGAMENTOS (por categoria)'], ...data.pagamentos.map((c) => [c.nome, c.n, c.total]),
+  ], [`Relatório · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · o que foi pago e recebido`]);
+
+  return (
+    <>
+      <div className="page-header">
+        <div>
+          <h1>Relatório</h1>
+          <p>O que já foi realizado no período: receitas recebidas, despesas pagas, receita por cliente e para onde foi o dinheiro.</p>
+        </div>
+      </div>
+      <div className="card">
+        <div className="toolbar">
+          <SeletorPeriodo valor={periodo} onChange={setPeriodo} />
+          <button className="btn" style={{ marginLeft: 'auto' }} onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
+        </div>
+        {erro && <div className="vazio alerta">{erro}</div>}
+        {data && (
+          <div className="cartoes-extrato rel-cartoes">
+            <div className="cartao-extrato"><span className="kpi-label">Receitas realizadas (R$)</span><span className="cartao-valor num entrada">{brl(data.receitas)}</span><span className="small muted">{data.n_receitas} recebimento(s)</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">Despesas realizadas (R$)</span><span className="cartao-valor num saida">{brl(data.despesas)}</span><span className="small muted">{data.n_despesas} pagamento(s)</span></div>
+            <div className="cartao-extrato total"><span className="kpi-label">Total do período (R$)</span><span className={'cartao-valor num ' + (data.total < 0 ? 'alerta' : '')}>{brl(data.total)}</span><span className="small muted">receitas − despesas</span></div>
+          </div>
+        )}
+      </div>
+      {data && (
+        <>
+          <TabelaParticipacao titulo="Receita por cliente" coluna="Cliente" itens={data.clientes} total={data.receitas} cor="var(--serie-entrada)" />
+          <TabelaParticipacao titulo="Análise de pagamentos" coluna="Categoria" itens={data.pagamentos} total={data.despesas} cor="var(--serie-saida)" />
+        </>
+      )}
+      <p className="muted small" style={{ margin: 0 }}>Conta só o que já foi pago ou recebido, na data do pagamento. Toda despesa entra (inclusive empréstimos e reserva); transferências entre as contas da própria empresa ficam de fora, porque se anulam.</p>
     </>
   );
 }

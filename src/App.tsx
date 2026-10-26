@@ -15,7 +15,7 @@ import { Cadastros } from './pages/Cadastros';
 import { Gestao } from './pages/Gestao';
 import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
-import { Analise, DRE, Margem, RELATORIOS, RelatoriosInicio, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
+import { Analise, DRE, Margem, RELATORIOS, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 import { Contatos } from './pages/Contatos';
 import { Forecast } from './pages/Forecast';
 
@@ -41,7 +41,6 @@ function montarMenu(segmento: 'servico' | 'produto'): Secao[] {
       secao: 'Relatórios',
       icon: 'painel',
       itens: [
-        { id: 'relatorios', label: 'Todos os relatórios', icon: 'painel' },
         ...relatoriosDoSegmento(segmento).map((r) => ({ id: `relatorios/${r.id}`, label: r.nome, icon: 'extrato' as const })),
       ],
     },
@@ -283,7 +282,7 @@ function Layout() {
           {rotaValida === 'cadastros' && <Cadastros />}
           {rotaValida === 'contatos' && <Contatos />}
           {rotaValida === 'relatorios/forecast' && <Forecast />}
-                    {rotaValida === 'relatorios' && <RelatoriosInicio />}
+                    {(rotaValida === 'relatorios' || rotaValida === 'relatorios/mensal') && <RelatorioMensal />}
           {rotaValida === 'relatorios/dre' && <DRE />}
           {rotaValida === 'relatorios/margem' && <Margem />}
           {rotaValida === 'relatorios/vencidos' && <Vencidos />}

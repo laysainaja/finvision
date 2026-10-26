@@ -1,5 +1,5 @@
 import express from 'express';
-import { all, hoje } from './db.js';
+import { all, get, hoje } from './db.js';
 import { check, isDate, optId, addMonths, addDays, diffDays } from './util.js';
 
 export const relatoriosRouter = express.Router({ mergeParams: true });
@@ -161,6 +161,26 @@ const FAIXAS = [
   { id: 'ate90', nome: '61 a 90 dias', max: 90 },
   { id: 'mais90', nome: 'Mais de 90 dias', max: Infinity },
 ];
+
+// ---------- Relatório do mês (o que já foi realizado) ----------
+// Receitas e despesas pagas/recebidas no período (toda despesa conta, como no Forecast; transferências entre contas
+// próprias ficam de fora porque se anulam), receita por cliente e pagamentos por categoria.
+relatoriosRouter.get('/relatorios/mensal', async (req, res) => {
+  check(isDate(req.query.de) && isDate(req.query.ate) && req.query.de <= req.query.ate, 'Período inválido.');
+  const p = { eid: req.eid, de: req.query.de, ate: req.query.ate };
+  const base = `FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
+    WHERE l.empresa_id = :eid AND l.data_pagamento BETWEEN :de AND :ate AND l.transferencia_id IS NULL`;
+  const [totais, clientes, pagamentos] = await Promise.all([
+    get(`SELECT COALESCE(SUM(CASE WHEN l.tipo = 'receber' THEN l.valor_pago END), 0)::bigint AS receitas,
+           COALESCE(SUM(CASE WHEN l.tipo = 'pagar' THEN l.valor_pago END), 0)::bigint AS despesas,
+           COUNT(*) FILTER (WHERE l.tipo = 'receber')::int AS n_receitas, COUNT(*) FILTER (WHERE l.tipo = 'pagar')::int AS n_despesas ${base}`, p),
+    all(`SELECT COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem cliente informado') AS nome, SUM(l.valor_pago)::bigint AS total, COUNT(*)::int AS n
+         ${base} AND l.tipo = 'receber' GROUP BY 1 ORDER BY 2 DESC`, p),
+    all(`SELECT COALESCE(c.nome, 'Sem categoria') AS nome, SUM(l.valor_pago)::bigint AS total, COUNT(*)::int AS n
+         ${base} AND l.tipo = 'pagar' GROUP BY 1 ORDER BY 2 DESC`, p),
+  ]);
+  res.json({ de: p.de, ate: p.ate, ...totais, total: totais.receitas - totais.despesas, clientes, pagamentos });
+});
 
 relatoriosRouter.get('/relatorios/vencidos', async (req, res) => {
   const h = hoje();
