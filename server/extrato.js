@@ -58,6 +58,9 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     cadDe: data('cad_de'), cadAte: data('cad_ate'),
     prevDe: data('prev_de'), prevAte: data('prev_ate'),
   };
+  // Cartão clicado (receita_em_aberto, receita_realizado, despesa_em_aberto, despesa_realizado): só filtra a lista,
+  // os números dos cartões continuam os mesmos.
+  const cartao = /^(receita|despesa)_(em_aberto|realizado)$/.exec(String(req.query.cartao ?? ''));
   const tem = (desmarcados, v) => !desmarcados || !desmarcados.has(v);
   // Filtros da lista (os cartões de resumo somam só o que passa por todos eles).
   const passa = (l, pago) => {
@@ -147,6 +150,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     // Transferência entra nos cartões pelo lado dela (entrada soma em receitas, saída em despesas);
     // desmarcando "Transferência" no filtro Tipo, sai da lista e dos cartões.
     resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
+    if (cartao && (cartao[1] !== (receita ? 'receita' : 'despesa') || (cartao[2] === 'realizado') !== pago)) continue;
     itens.push({ ...l, situacao: sit, valor_extrato: receita ? valor : -valor, saldo: pago ? saldo : null });
   }
   resumo.total_periodo = resumo.receitas_aberto + resumo.receitas_realizadas - resumo.despesas_aberto - resumo.despesas_realizadas;

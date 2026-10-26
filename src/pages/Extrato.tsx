@@ -97,6 +97,8 @@ export function Extrato() {
   const [baixa, setBaixa] = useState<ItemExtrato[] | null>(null);
   const [menuNovo, setMenuNovo] = useState(false);
   const [transferir, setTransferir] = useState(false);
+  // Cartão clicado: filtra a lista sem mudar os números dos cartões (esses só mudam pelos filtros).
+  const [cartao, setCartao] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(busca), 300);
@@ -104,7 +106,7 @@ export function Extrato() {
   }, [busca]);
 
   const { data, erro } = useApi<Movimentacoes>(
-    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), v: versao })}`,
+    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), cartao, v: versao })}`,
   );
   useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
 
@@ -115,19 +117,11 @@ export function Extrato() {
   const selecao = itens.filter((i) => selecionados.has(i.id));
   const filtrosAtivos = [q, conta].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
 
-  // Cartões de resumo: atalho para o tipo + situação (clicar de novo desfaz). Os valores seguem todos os filtros.
-  const desmarcadosDo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => ({
-    tipos: new Set(['receita', 'despesa', 'transferencia'].filter((x) => x !== t)),
-    situacoes: new Set(s === 'em_aberto' ? ['realizado'] : ['aberto', 'vencido']),
-  });
-  const igual = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
-  const cartaoAtivo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => {
-    const d = desmarcadosDo(t, s);
-    return igual(extras.tipos, d.tipos) && igual(extras.situacoes, d.situacoes);
-  };
-  const atalho = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') =>
-    setExtras((x) => (cartaoAtivo(t, s) ? { ...x, tipos: new Set(), situacoes: new Set() } : { ...x, ...desmarcadosDo(t, s) }));
+  // Cartões de resumo: clicar mostra só aquele grupo na lista (clicar de novo desfaz). Os valores seguem só os filtros.
+  const cartaoAtivo = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => cartao === `${t}_${s}`;
+  const atalho = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') => setCartao((c) => (c === `${t}_${s}` ? null : `${t}_${s}`));
   const limpar = () => {
+    setCartao(null);
     setBusca('');
     setConta('');
     setOcultas(new Set());
@@ -276,7 +270,7 @@ export function Extrato() {
                 <span className={'cartao-valor num ' + cor}>{brl(valor)}</span>
               </button>
             ))}
-            <button className={'cartao-extrato total' + (!extras.tipos.size && !extras.situacoes.size ? ' ativo' : '')} onClick={() => setExtras((x) => ({ ...x, tipos: new Set(), situacoes: new Set() }))}>
+            <button className={'cartao-extrato total' + (!cartao ? ' ativo' : '')} onClick={() => setCartao(null)}>
               <span className="kpi-label">Total do período (R$)</span>
               <span className={'cartao-valor num ' + (data.resumo.total_periodo < 0 ? 'alerta' : '')}>{brl(data.resumo.total_periodo)}</span>
             </button>
