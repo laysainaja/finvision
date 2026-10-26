@@ -4,14 +4,18 @@ import { check, isDate, addMonths, addDays } from './util.js';
 import { DENTRO_DO_RESULTADO } from './relatorios.js';
 
 // Forecast: acompanhamento dos meses que passaram + projeção dos próximos, no formato da planilha do escritório.
-// Tudo por competência (data de vencimento; valor pago quando já foi pago). Meses futuros = o que já está lançado
-// em aberto (mensalidades repetidas, parcelas, despesas previstas).
+// Tudo por CAIXA: o que foi pago/recebido entra no mês do pagamento, pelo valor pago. O que está em aberto entra
+// no mês do vencimento (vencidos e não pagos contam no mês atual). Meses futuros = o que já está lançado em aberto
+// (mensalidades repetidas, parcelas, despesas previstas).
 export const forecastRouter = express.Router({ mergeParams: true });
 
 const NORM_SQL = (col) => `regexp_replace(translate(lower(trim(${col})), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn'), '\\s+', ' ', 'g')`;
 const div = (a, b) => (b ? Math.round(a / b) : null); // valores em centavos: resultado inteiro
 const razao = (a, b) => (b ? Math.round((a / b) * 100) / 100 : null); // ROAS com 2 casas (ex.: 3,25x)
 const pct = (a, b) => (b ? Math.round((a / b) * 10000) / 100 : null);
+// Mês de caixa de cada lançamento e o valor que conta (pago, ou o previsto se ainda está em aberto).
+const DATA_CAIXA = `CASE WHEN l.data_pagamento IS NOT NULL THEN l.data_pagamento ELSE GREATEST(l.vencimento, :hoje::date) END`;
+const VALOR_CAIXA = 'COALESCE(l.valor_pago, l.valor)';
 
 forecastRouter.get('/relatorios/forecast', async (req, res) => {
   const h = hoje();
@@ -25,22 +29,22 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     check(meses.length <= 24, 'Escolha um período de até 24 meses.');
   }
   const mesAnteriorAoPeriodo = addMonths(de, -1).slice(0, 7); // para calcular o churn do primeiro mês
-  const p = { eid: req.eid, de: addMonths(de, -1), ate };
+  const p = { eid: req.eid, de: addMonths(de, -1), ate, hoje: h };
 
   const [receitas, despesas, saldoContas, movAntes, caixaMov, foraResultado, ajustes] = await Promise.all([
     all(
-      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, l.tipo_receita, COALESCE(c.dre, '') AS dre,
+      `SELECT to_char(${DATA_CAIXA}, 'YYYY-MM') AS mes, l.tipo_receita, COALESCE(c.dre, '') AS dre,
          COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
-         COALESCE(l.valor_pago, l.valor) AS valor
+         ${VALOR_CAIXA} AS valor
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
-       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.vencimento BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}`,
+       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND ${DATA_CAIXA} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}`,
       p,
     ),
     all(
-      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, COALESCE(c.id, 0) AS categoria_id, COALESCE(c.nome, 'Sem categoria') AS nome,
-         COALESCE(c.grupo_forecast, 'fixo') AS grupo, SUM(COALESCE(l.valor_pago, l.valor))::bigint AS valor
+      `SELECT to_char(${DATA_CAIXA}, 'YYYY-MM') AS mes, COALESCE(c.id, 0) AS categoria_id, COALESCE(c.nome, 'Sem categoria') AS nome,
+         COALESCE(c.grupo_forecast, 'fixo') AS grupo, SUM(${VALOR_CAIXA})::bigint AS valor
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
-       WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND l.vencimento BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}
+       WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND ${DATA_CAIXA} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO}
        GROUP BY 1, 2, 3, 4`,
       p,
     ),
@@ -64,10 +68,10 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     ),
     // Aportes, reserva e empréstimos: mexem no caixa, não no lucro. Transferências entre contas próprias se anulam e ficam de fora.
     all(
-      `SELECT to_char(l.vencimento, 'YYYY-MM') AS mes, c.nome,
-         SUM(CASE WHEN l.tipo = 'receber' THEN 1 ELSE -1 END * COALESCE(l.valor_pago, l.valor))::bigint AS valor
+      `SELECT to_char(${DATA_CAIXA}, 'YYYY-MM') AS mes, c.nome,
+         SUM(CASE WHEN l.tipo = 'receber' THEN 1 ELSE -1 END * ${VALOR_CAIXA})::bigint AS valor
        FROM lancamentos l JOIN categorias c ON c.id = l.categoria_id
-       WHERE l.empresa_id = :eid AND c.dre = 'fora_resultado' AND c.nome !~* '^transfer' AND l.vencimento BETWEEN :de AND :ate
+       WHERE l.empresa_id = :eid AND c.dre = 'fora_resultado' AND c.nome !~* '^transfer' AND ${DATA_CAIXA} BETWEEN :de AND :ate
        GROUP BY 1, 2`,
       p,
     ),

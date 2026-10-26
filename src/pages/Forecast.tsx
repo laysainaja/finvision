@@ -78,7 +78,7 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
         <div>
           <a href="#/relatorios" className="small muted">← Relatórios</a>
           <h1>Forecast</h1>
-          <p>Acompanhamento dos meses que passaram e projeção dos próximos, com base nas contas lançadas (competência).</p>
+          <p>Por caixa: nos meses que passaram, o que foi de fato pago e recebido em cada mês; nos próximos, o que está lançado em aberto, pelo vencimento.</p>
         </div>
       </div>
       {data && data.sem_tipo > 0 && (
