@@ -105,8 +105,54 @@ conciliacaoRouter.post('/extrato/importar', async (req, res) => {
       fitids: pgArray(itens.map((i) => String(i.fitid))),
     },
   );
-  res.json({ inseridos: inseridos.length, duplicados: itens.length - inseridos.length });
+  // Já confere o que foi lançado antes (à mão, importado ou pela recorrência): esses saem conciliados e só sobra o novo.
+  const jaLancados = inseridos.length ? await transaction(() => casarJaLancados(req.eid, contaId, inseridos.map((i) => i.id))) : 0;
+  res.json({ inseridos: inseridos.length, duplicados: itens.length - inseridos.length, ja_lancados: jaLancados });
 });
+
+/**
+ * Concilia sozinho os movimentos do extrato que já têm lançamento no FinVision: mesmo tipo, mesmo valor (pago, ou o
+ * previsto se em aberto), mesmo mês e até 5 dias de diferença; fica com o de data mais próxima. Primeiro os já pagos
+ * nesta conta (o caso de quem lançou à mão ou importou), depois os em aberto. Empate entre lançamentos iguais
+ * (mesmo valor e data, como várias taxas de R$ 0,55 no dia) é indiferente; empate entre contas em aberto diferentes
+ * fica pendente, para a pessoa escolher. Chamar dentro de uma transação. Devolve quantos conciliou.
+ */
+export async function casarJaLancados(eid, contaId, ids = null) {
+  const itens = await all(
+    `SELECT id, data, valor FROM extrato_itens WHERE empresa_id = :eid AND conta_bancaria_id = :conta AND lancamento_id IS NULL AND ignorado = 0
+       ${ids ? 'AND id = ANY(:ids::bigint[])' : ''} ORDER BY data, id`,
+    { eid, conta: contaId, ...(ids && { ids: pgArray(ids) }) },
+  );
+  if (!itens.length) return 0;
+  const de = itens[0].data, ate = itens[itens.length - 1].data;
+  const cands = await all(
+    `SELECT l.id, l.tipo, COALESCE(l.valor_pago, l.valor) AS valor, COALESCE(l.data_pagamento, l.vencimento) AS data,
+       (l.data_pagamento IS NOT NULL) AS pago, lower(COALESCE(l.descricao, '') || '|' || COALESCE(l.contato, '')) AS quem
+     FROM lancamentos l
+     WHERE l.empresa_id = :eid AND l.transferencia_id IS NULL
+       AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
+       AND ((l.data_pagamento IS NOT NULL AND l.conta_bancaria_id = :conta) OR l.data_pagamento IS NULL)
+       AND COALESCE(l.data_pagamento, l.vencimento) BETWEEN (:de::date - 5) AND (:ate::date + 5)`,
+    { eid, conta: contaId, de, ate },
+  );
+  const usados = new Set();
+  let n = 0;
+  for (const item of itens) {
+    const tipo = item.valor > 0 ? 'receber' : 'pagar';
+    const ok = cands.filter((c) => !usados.has(c.id) && c.tipo === tipo && c.valor === Math.abs(item.valor)
+      && c.data.slice(0, 7) === item.data.slice(0, 7) && Math.abs(diffDays(c.data, item.data)) <= 5);
+    if (!ok.length) continue;
+    const grupo = ok.some((c) => c.pago) ? ok.filter((c) => c.pago) : ok;
+    const menor = Math.min(...grupo.map((c) => Math.abs(diffDays(c.data, item.data))));
+    const melhores = grupo.filter((c) => Math.abs(diffDays(c.data, item.data)) === menor);
+    if (!melhores[0].pago && new Set(melhores.map((c) => c.quem)).size > 1) continue; // contas em aberto diferentes: a pessoa escolhe
+    const escolhido = melhores[0];
+    usados.add(escolhido.id);
+    await conciliar(await buscarItem(item.id, eid), escolhido.id, eid);
+    n++;
+  }
+  return n;
+}
 
 const palavras = (s) =>
   new Set(
@@ -191,10 +237,14 @@ conciliacaoRouter.post('/extrato/auto-conciliar', async (req, res) => {
     { eid: req.eid, conta: contaId },
   );
 
-  // Concilia só quando há um candidato claramente melhor: valor exato, data próxima e sem empate.
+  // Primeiro o que já foi lançado (valor exato, até 5 dias); depois o restante pelas sugestões, só quando há um
+  // candidato claramente melhor (valor exato, data próxima e sem empate).
   const conciliados = await transaction(async () => {
     let n = 0;
+    const contas = [...new Set(pendentes.map((i) => i.conta_bancaria_id))];
+    for (const c of contas) n += await casarJaLancados(req.eid, c);
     for (const item of pendentes) {
+      if ((await get('SELECT lancamento_id FROM extrato_itens WHERE id = :id', { id: item.id })).lancamento_id) continue;
       const [melhor, segundo] = await sugestoes(item, req.eid);
       if (melhor && melhor.valor_exato && melhor.dias <= 5 && (!segundo || segundo.score < melhor.score)) {
         await conciliar(item, melhor.id, req.eid);

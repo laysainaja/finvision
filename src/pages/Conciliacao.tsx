@@ -51,11 +51,12 @@ export function Conciliacao() {
   const importar = async () => {
     if (!importacao) return;
     await acao(async () => {
-      const r = await api.post<{ inseridos: number; duplicados: number }>(`${base}/extrato/importar`, {
+      const r = await api.post<{ inseridos: number; duplicados: number; ja_lancados: number }>(`${base}/extrato/importar`, {
         conta_bancaria_id: contaId,
         itens: importacao.itens,
       });
-      toast(`${r.inseridos} transação(ões) importada(s)` + (r.duplicados ? `, ${r.duplicados} já existiam` : '') + '.');
+      toast(`${r.inseridos} transação(ões) importada(s)` + (r.duplicados ? `, ${r.duplicados} já estavam no extrato` : '')
+        + (r.ja_lancados ? `. ${r.ja_lancados} já estavam lançadas e foram conciliadas sozinhas; ficam ${r.inseridos - r.ja_lancados} para conciliar` : '') + '.');
     });
     setImportacao(null);
     setAba('pendente');
