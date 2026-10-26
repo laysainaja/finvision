@@ -129,7 +129,9 @@ export async function casarJaLancados(eid, contaId, ids = null) {
     `SELECT l.id, l.tipo, COALESCE(l.valor_pago, l.valor) AS valor, COALESCE(l.data_pagamento, l.vencimento) AS data,
        (l.data_pagamento IS NOT NULL) AS pago, lower(COALESCE(l.descricao, '') || '|' || COALESCE(l.contato, '')) AS quem
      FROM lancamentos l
-     WHERE l.empresa_id = :eid AND l.transferencia_id IS NULL
+     WHERE l.empresa_id = :eid
+       -- perna de transferência só casa na própria conta (já paga); em aberto não existe transferência
+       AND (l.transferencia_id IS NULL OR (l.data_pagamento IS NOT NULL AND l.conta_bancaria_id = :conta))
        AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
        AND ((l.data_pagamento IS NOT NULL AND l.conta_bancaria_id = :conta) OR l.data_pagamento IS NULL)
        AND COALESCE(l.data_pagamento, l.vencimento) BETWEEN (:de::date - 5) AND (:ate::date + 5)`,

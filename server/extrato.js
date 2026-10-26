@@ -144,7 +144,8 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     if (!tem(f.tipos, l.transferencia_id ? 'transferencia' : receita ? 'receita' : 'despesa')) continue;
     if (!tem(f.situacoes, pago ? 'realizado' : sit)) continue;
     // Os cartões somam exatamente o que está na lista: qualquer filtro (inclusive tipo e situação) muda os números.
-    resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
+    // Transferência entre contas próprias não é receita nem despesa: aparece na lista, mas fica fora dos cartões.
+    if (!l.transferencia_id) resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
     itens.push({ ...l, situacao: sit, valor_extrato: receita ? valor : -valor, saldo: pago ? saldo : null });
   }
   resumo.total_periodo = resumo.receitas_aberto + resumo.receitas_realizadas - resumo.despesas_aberto - resumo.despesas_realizadas;

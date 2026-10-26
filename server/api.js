@@ -477,6 +477,27 @@ async function categoriaTransferencia(eid, tipo) {
   )).id;
 }
 
+/**
+ * Liga as pernas de transferências que vieram soltas (ex.: importadas do Conta Azul como "Transferência de Saída" e
+ * "Transferência de Entrada"): mesma data de pagamento, mesmo valor, contas diferentes. Assim elas deixam de contar
+ * como receita e despesa. Devolve quantos pares foram ligados.
+ */
+export async function vincularTransferencias(eid) {
+  const perna = (tipo) => `SELECT l.id, l.valor_pago AS v, l.data_pagamento AS d, l.conta_bancaria_id AS conta,
+      row_number() OVER (PARTITION BY l.valor_pago, l.data_pagamento ORDER BY l.id) AS n
+    FROM lancamentos l JOIN categorias c ON c.id = l.categoria_id
+    WHERE l.empresa_id = :eid AND l.tipo = '${tipo}' AND l.transferencia_id IS NULL AND l.data_pagamento IS NOT NULL
+      AND c.dre = 'fora_resultado' AND c.nome ~* '^transfer'`;
+  const r = await all(
+    `WITH s AS (${perna('pagar')}), e AS (${perna('receber')}),
+     pares AS MATERIALIZED (SELECT s.id AS saida, e.id AS entrada, gen_random_uuid() AS t
+       FROM s JOIN e ON e.v = s.v AND e.d = s.d AND e.n = s.n AND e.conta IS DISTINCT FROM s.conta)
+     UPDATE lancamentos l SET transferencia_id = p.t FROM pares p WHERE l.id IN (p.saida, p.entrada) RETURNING l.id`,
+    { eid },
+  );
+  return r.length / 2;
+}
+
 /** Cria as duas pernas (chame dentro de uma transação). Devolve o id da transferência e o de cada perna. */
 export async function criarTransferencia(eid, { origem, destino, data, valor, descricao, observacao = null }) {
   check(origem && destino, 'Escolha a conta de origem e a de destino.');

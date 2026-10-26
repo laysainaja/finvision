@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { sql, get, all, transaction } from '../server/db.js';
 import { chaveNome } from '../server/util.js';
 import { resolverContato } from '../server/contatos.js';
+import { vincularTransferencias } from '../server/api.js';
 
 const MARCA = 'Importado do Conta Azul';
 const args = process.argv.slice(2);
@@ -285,6 +286,8 @@ await transaction(async () => {
       { dados: JSON.stringify(registros.slice(i, i + 250)) },
     );
   }
+  const pares = await vincularTransferencias(empresa.id);
+  if (pares) console.log(`Transferências entre contas ligadas: ${pares} par(es) (não contam como receita/despesa).`);
   if (refazer) {
     // Categorias e contatos que sobraram sem nenhum lançamento (nomes antigos) saem do cadastro.
     const cats = await all('DELETE FROM categorias c WHERE empresa_id = :eid AND NOT EXISTS (SELECT 1 FROM lancamentos l WHERE l.categoria_id = c.id) RETURNING nome', { eid: empresa.id });
