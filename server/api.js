@@ -96,6 +96,20 @@ export async function exigirMembro(eid, userId) {
   return m;
 }
 
+// Logo da empresa: imagem PNG, JPG ou WebP em data URL (o navegador já reduz o tamanho). null remove.
+api.put('/empresas/:id/logo', async (req, res) => {
+  const id = idParam(req.params.id);
+  const m = await exigirMembro(id, req.userId);
+  check(m.papel === 'dono', 'Só o dono pode trocar o logo da empresa.', 403);
+  const logo = req.body.logo ?? null;
+  if (logo !== null) {
+    check(typeof logo === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo), 'Envie uma imagem PNG, JPG ou WebP.');
+    check(logo.length <= 400_000, 'Imagem grande demais. Use um logo menor (até uns 300 KB).');
+  }
+  await all('UPDATE empresas SET logo = :logo WHERE id = :id', { logo, id });
+  res.json(await exigirMembro(id, req.userId));
+});
+
 api.put('/empresas/:id', async (req, res) => {
   const id = idParam(req.params.id);
   const m = await exigirMembro(id, req.userId);

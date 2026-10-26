@@ -5,7 +5,8 @@ import { addMeses, brl, dataBR, fimMes, hoje, inicioMes, mesCurto, num } from '.
 import { exportarCSV, pctCSV } from '../lib/exportar';
 import type { Regime, RelatorioAnalise, RelatorioDRE, RelatorioVencidos, TipoLancamento } from '../types';
 import { Icon, Modal } from '../components/ui';
-import { SeletorPeriodo, periodoDe, type Periodo as PeriodoSel } from '../components/SeletorPeriodo';
+import { SeletorPeriodo, periodoDe, nomePeriodo, type Periodo as PeriodoSel } from '../components/SeletorPeriodo';
+import { TopoRelatorio } from '../components/LogoEmpresa';
 
 // ---------- Catálogo ----------
 
@@ -70,14 +71,7 @@ const Valor = ({ v, forte }: { v: number; forte?: boolean }) => (
 const Pct = ({ v }: { v: number | null }) => <td className="r num muted small" data-soma={v ?? undefined} data-formato="pct">{v === null ? '' : `${v.toLocaleString('pt-BR')}%`}</td>;
 
 function Cabecalho({ titulo, descricao }: { titulo: string; descricao: string }) {
-  return (
-    <div className="page-header">
-      <div>
-        <h1>{titulo}</h1>
-        <p>{descricao}</p>
-      </div>
-    </div>
-  );
+  return <TopoRelatorio titulo={titulo} descricao={descricao} />;
 }
 
 // ---------- Página inicial de relatórios ----------
@@ -522,18 +516,23 @@ export function RelatorioMensal() {
     ['ANÁLISE DE PAGAMENTOS (por categoria)'], ...data.pagamentos.map((c) => [c.nome, c.n, c.total]),
   ], [`Relatório · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · o que foi pago e recebido`]);
 
+  // PDF pelo próprio navegador: a janela de impressão já vem pronta (sem menu e botões), é só escolher "Salvar como PDF".
+  const baixarPDF = () => {
+    const anterior = document.title;
+    document.title = `Relatório - ${empresa?.nome ?? ''} - ${nomePeriodo(periodo).replace(/\//g, '-')}`;
+    window.print();
+    document.title = anterior;
+  };
+
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Relatório</h1>
-          <p>O que já foi realizado no período: receitas recebidas, despesas pagas, receita por cliente e para onde foi o dinheiro.</p>
-        </div>
-      </div>
+      <TopoRelatorio titulo="Relatório" periodo={nomePeriodo(periodo)}
+        descricao="O que já foi realizado no período: receitas recebidas, despesas pagas, receita por cliente e para onde foi o dinheiro." />
       <div className="card">
         <div className="toolbar">
           <SeletorPeriodo valor={periodo} onChange={setPeriodo} />
-          <button className="btn" style={{ marginLeft: 'auto' }} onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
+          <button className="btn" style={{ marginLeft: 'auto' }} onClick={baixarPDF} disabled={!data}><Icon name="extrato" /> Baixar PDF</button>
+          <button className="btn" onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
         </div>
         {erro && <div className="vazio alerta">{erro}</div>}
         {data && (

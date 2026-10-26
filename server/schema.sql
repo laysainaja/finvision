@@ -198,6 +198,9 @@ alter table lancamentos add column if not exists centro_custo text;
 alter table lancamentos add column if not exists forma_pagamento text;
 alter table lancamentos add column if not exists data_prevista date;
 
+-- Logo da empresa (imagem pequena em data URL, já reduzida no navegador), usado no topo dos relatórios e no PDF.
+alter table empresas add column if not exists logo text;
+
 -- Valores do Forecast informados à mão por mês (ex.: clientes totais, quando o cliente paga adiantado).
 create table if not exists forecast_ajustes (
   empresa_id bigint not null references empresas(id) on delete cascade,

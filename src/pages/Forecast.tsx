@@ -5,6 +5,7 @@ import { addMeses, fimMes, hoje, inicioMes, mesCurto, num } from '../lib/format'
 import { exportarCSV } from '../lib/exportar';
 import type { LinhaForecast, RelatorioForecast } from '../types';
 import { Icon, useAcao } from '../components/ui';
+import { TopoRelatorio } from '../components/LogoEmpresa';
 
 type Periodo = { de: string; ate: string };
 const PRESETS: { id: string; nome: string; calc: () => Periodo }[] = [
@@ -74,12 +75,7 @@ Calculado pelos recebimentos: ${calculado}. Deixe vazio para voltar ao calculado
 
   return (
     <>
-      <div className="page-header">
-        <div>
-          <h1>Forecast</h1>
-          <p>Por caixa: nos meses que passaram, o que foi de fato pago e recebido em cada mês; nos próximos, o que está lançado em aberto, pelo vencimento.</p>
-        </div>
-      </div>
+      <TopoRelatorio titulo="Forecast" descricao="Por caixa: nos meses que passaram, o que foi de fato pago e recebido em cada mês; nos próximos, o que está lançado em aberto, pelo vencimento." />
       {data && data.sem_tipo > 0 && (
         <div className="aviso-box">
           <Icon name="alerta" /> {data.sem_tipo} venda(s) no período estão sem tipo (nova, recorrente ou avulsa) e foram contadas como avulsas. Se alguma for nova venda ou mensalidade, ajuste em Contas a receber → Editar → Tipo de receita.

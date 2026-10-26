@@ -16,6 +16,8 @@ export interface Empresa {
   escritorio_nome: string | null;
   /** true quando o acesso vem do escritório (gestão), não de um convite direto. */
   via_escritorio: boolean;
+  /** Logo da empresa (data URL) para o topo dos relatórios. */
+  logo: string | null;
 }
 
 export interface Escritorio {

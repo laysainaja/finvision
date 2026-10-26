@@ -475,3 +475,26 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .rel-cartoes .cartao-extrato { cursor: default; }
 @media (max-width: 700px) { .rel-cartoes { grid-template-columns: 1fr; } }
 td > .barra-h-trilho { display: block; min-width: 80px; }
+
+/* Logo da empresa */
+.empresa-cartao { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.empresa-logo-caixa { width: 120px; height: 64px; border: 1px dashed var(--border); border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--surface-2); flex: none; overflow: hidden; }
+.empresa-logo-caixa img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.topo-relatorio { align-items: flex-start; flex-wrap: nowrap; }
+.topo-relatorio > div:first-child { flex: 1; min-width: 0; }
+.topo-relatorio .logo-relatorio { flex: none; }
+.logo-relatorio { max-height: 56px; max-width: 200px; object-fit: contain; }
+.so-impressao { display: none; }
+
+/* Impressão / PDF dos relatórios: só o conteúdo, sem menu, topo do app, botões e barra de soma */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff !important; }
+  .sidebar, .topbar, .toolbar .btn, .soma-barra, .seletor-periodo, .btn, .toasts { display: none !important; }
+  .app, .main { display: block !important; }
+  .content { max-width: none !important; padding: 0 !important; }
+  .card { box-shadow: none !important; break-inside: avoid; }
+  .so-impressao { display: block; }
+  .table-wrap { overflow: visible !important; max-height: none !important; }
+  tr { break-inside: avoid; }
+}

@@ -5,6 +5,7 @@ import { brl, dataBR, hoje } from '../lib/format';
 import { NOME_GRUPO_FORECAST, NOME_LINHA_DRE, type Categoria, type ContaBancaria, type Empresa, type GrupoForecast, type LinhaDRE } from '../types';
 import { Field, Icon, Modal, MoneyInput, useAcao } from '../components/ui';
 import { Equipe } from './Equipe';
+import { prepararLogo } from '../components/LogoEmpresa';
 
 export function EmpresaModal({ empresa, onClose }: { empresa?: Empresa; onClose: () => void }) {
   const { recarregar, setEmpresaId } = useEmpresa();
@@ -177,6 +178,15 @@ export function Cadastros() {
   const [editarEmpresa, setEditarEmpresa] = useState(false);
   const [conta, setConta] = useState<{ conta?: ContaBancaria } | null>(null);
 
+  const trocarLogo = async (arquivo: File | undefined) => {
+    if (!arquivo || !empresa) return;
+    if (await acao(async () => api.put(`/empresas/${empresa.id}/logo`, { logo: await prepararLogo(arquivo) }), 'Logo atualizado. Ele aparece no topo dos relatórios e no PDF.')) recarregar();
+  };
+  const removerLogo = async () => {
+    if (!empresa || !confirm('Remover o logo da empresa?')) return;
+    if (await acao(() => api.put(`/empresas/${empresa.id}/logo`, { logo: null }), 'Logo removido.')) recarregar();
+  };
+
   const excluirConta = async (c: ContaBancaria) => {
     if (!confirm(`Excluir a conta "${c.nome}"?`)) return;
     if (await acao(() => api.del(`${base}/contas-bancarias/${c.id}`), 'Conta excluída.')) recarregar();
@@ -191,13 +201,26 @@ export function Cadastros() {
         </div>
       </div>
 
-      <div className="card card-pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <div>
+      <div className="card card-pad empresa-cartao">
+        <div className="empresa-logo-caixa" title="Logo da empresa">
+          {empresa?.logo ? <img src={empresa.logo} alt={`Logo de ${empresa.nome}`} /> : <span className="muted small">Sem logo</span>}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="muted small">Empresa</div>
           <h2>{empresa?.nome}</h2>
           <div className="muted">{empresa?.documento || 'Sem documento cadastrado'}</div>
+          {empresa?.papel === 'dono' && <div className="muted small" style={{ marginTop: 4 }}>O logo aparece no topo dos relatórios e no PDF.</div>}
         </div>
-        {empresa?.papel === 'dono' && <button className="btn" onClick={() => setEditarEmpresa(true)}><Icon name="editar" /> Editar</button>}
+        {empresa?.papel === 'dono' && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <label className="btn">
+              <Icon name="upload" /> {empresa.logo ? 'Trocar logo' : 'Enviar logo'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => (trocarLogo(e.target.files?.[0]), (e.target.value = ''))} />
+            </label>
+            {empresa.logo && <button className="btn btn-ghost" onClick={removerLogo}>Remover logo</button>}
+            <button className="btn" onClick={() => setEditarEmpresa(true)}><Icon name="editar" /> Editar</button>
+          </div>
+        )}
       </div>
 
       <Equipe />
