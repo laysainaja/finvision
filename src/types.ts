@@ -126,7 +126,7 @@ export interface Movimentacoes {
   hoje: string;
   saldo_inicial: number;
   saldo_final: number;
-  resumo: { receitas_aberto: number; receitas_realizadas: number; despesas_aberto: number; despesas_realizadas: number; total_periodo: number };
+  resumo: { receitas_aberto: number; receitas_realizadas: number; despesas_aberto: number; despesas_realizadas: number; transferencias_entrada: number; transferencias_saida: number; total_periodo: number };
   itens: ItemExtrato[];
 }
 

@@ -328,7 +328,8 @@ export async function buscarLancamento(id, eid) {
 
 e.get('/lancamentos', async (req, res) => {
   const { tipo, status, de, ate, q, conta_id, categoria_id } = req.query;
-  const where = ['l.empresa_id = :eid'];
+  // Transferência entre contas próprias não é conta a pagar nem a receber: fica só no extrato.
+  const where = ['l.empresa_id = :eid', 'l.transferencia_id IS NULL'];
   const p = { eid: req.eid, hoje: hoje() };
   if (tipo) (where.push('l.tipo = :tipo'), (p.tipo = tipo));
   if (status === 'em_aberto') where.push('l.data_pagamento IS NULL');
