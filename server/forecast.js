@@ -127,7 +127,9 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
   const midia = (m) => g('investimento', m) + g('imposto_anuncio', m);
   const totalVariavel = (m) => g('variavel', m);
   const totalFixo = (m) => g('fixo', m);
-  const lucro = (m) => porMes[m].receita - midia(m) - totalVariavel(m) - totalFixo(m);
+  // Forecast é caixa: toda saída e toda entrada contam no resultado do mês, inclusive empréstimos, aportes e reserva
+  // (na DRE esses continuam fora do resultado). Transferências entre contas próprias se anulam e não entram.
+  const lucro = (m) => porMes[m].receita - midia(m) - totalVariavel(m) - totalFixo(m) + totalFora(m);
   const somaPeriodo = (fn) => meses.reduce((s, m) => s + fn(m), 0);
 
   let saldo = saldoContas.s + movAntes.s;
@@ -188,14 +190,14 @@ forecastRouter.get('/relatorios/forecast', async (req, res) => {
     { id: 'fixos', titulo: 'Custos fixos (R$)', linhas: linhasCategoria('fixo'), destaque: linha('total_fixo', 'Total de custos fixos', 'moeda', totalFixo) },
     // Só aparece quando houve aporte, reserva ou empréstimo no período.
     ...(linhasFora.length ? [{
-      id: 'fora_resultado', titulo: 'Aportes, reserva e empréstimos (mexem no caixa, não no lucro)',
+      id: 'fora_resultado', titulo: 'Aportes, reserva e empréstimos (entram no resultado do mês)',
       linhas: linhasFora, destaque: linha('total_fora', 'Saldo das movimentações (+ entrou / − saiu)', 'moeda', totalFora),
     }] : []),
     {
       id: 'resultado', titulo: 'Resultado',
       linhas: [
-        linha('lucro', 'Lucro (R$)', 'moeda', lucro),
-        linha('lucro_pct', 'Lucro (%)', 'pct', (m) => pct(lucro(m), porMes[m].receita), () => pct(somaPeriodo(lucro), somaPeriodo((m) => porMes[m].receita))),
+        linha('lucro', 'Resultado do mês (R$)', 'moeda', lucro),
+        linha('lucro_pct', 'Resultado do mês (%)', 'pct', (m) => pct(lucro(m), porMes[m].receita), () => pct(somaPeriodo(lucro), somaPeriodo((m) => porMes[m].receita))),
         linha('caixa', 'Caixa (R$)', 'moeda', (m) => caixa[m], () => caixa[meses.at(-1)]),
       ],
     },
