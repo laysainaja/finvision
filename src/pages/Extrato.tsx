@@ -240,7 +240,7 @@ export function Extrato() {
       <div className="card">
         <div className="toolbar">
           <SeletorPeriodo valor={periodo} onChange={setPeriodo} />
-          <input className="input grow" placeholder="Pesquisar no período (descrição, cliente, fornecedor, categoria)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <input className="input grow" placeholder="Pesquisar no período (descrição, cliente, fornecedor, categoria ou valor)…" value={busca} onChange={(e) => setBusca(e.target.value)} />
           <select className="select input" value={conta} onChange={(e) => setConta(e.target.value)} aria-label="Conta">
             <option value="">Todas as contas</option>
             {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}

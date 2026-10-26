@@ -88,6 +88,15 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
   // Categoria e busca são aplicadas depois, em memória: o saldo acumulado precisa de todos os movimentos da conta.
   const normalizar = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const termo = q && normalizar(q);
+  // Busca por valor: "588", "588,00", "1.326,00", "R$ 58,80". Com centavos = valor exato; sem centavos = qualquer valor
+  // com esses reais (588 acha 588,00 e 588,45). Vale o valor original ou o pago.
+  const buscaValor = (() => {
+    const t = (q ?? '').replace(/r\$|\s/gi, '');
+    if (!/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+(,\d{1,2})?$/.test(t)) return null;
+    const [reais, cent] = t.replace(/\./g, '').split(',');
+    return cent === undefined ? { reais: Number(reais) } : { centavos: Number(reais) * 100 + Number(cent.padEnd(2, '0')) };
+  })();
+  const bateValor = (l) => [l.valor, l.valor_pago].some((v) => v != null && (buscaValor.centavos !== undefined ? v === buscaValor.centavos : Math.floor(v / 100) === buscaValor.reais));
 
   const linhas = await all(
     `SELECT l.id, l.tipo, l.descricao, l.contato, l.contato_id, l.tipo_receita, l.documento, l.valor, l.valor_pago, l.vencimento, l.data_pagamento,
@@ -131,7 +140,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
 
     if (ocultas.has(l.categoria_id ?? 0)) continue;
     if (!passa(l, pago)) continue;
-    if (termo && ![l.descricao, l.contato, l.documento, l.categoria_nome].some((t) => normalizar(t).includes(termo))) continue;
+    if (termo && ![l.descricao, l.contato, l.documento, l.categoria_nome].some((t) => normalizar(t).includes(termo)) && !(buscaValor && bateValor(l))) continue;
     // Os cartões somam o período com busca/conta/categoria, mas sem o filtro de tipo e situação,
     // para que funcionem como atalhos de filtro.
     resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
