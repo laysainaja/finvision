@@ -125,9 +125,6 @@ export function Extrato() {
     const d = desmarcadosDo(t, s);
     return igual(extras.tipos, d.tipos) && igual(extras.situacoes, d.situacoes);
   };
-  // Cartão de transferências: só o tipo Transferência (situação livre).
-  const soTransf = igual(extras.tipos, new Set(['receita', 'despesa'])) && !extras.situacoes.size;
-  const atalhoTransf = () => setExtras((x) => ({ ...x, tipos: soTransf ? new Set() : new Set(['receita', 'despesa']), situacoes: new Set() }));
   const atalho = (t: 'receita' | 'despesa', s: 'em_aberto' | 'realizado') =>
     setExtras((x) => (cartaoAtivo(t, s) ? { ...x, tipos: new Set(), situacoes: new Set() } : { ...x, ...desmarcadosDo(t, s) }));
   const limpar = () => {
@@ -178,8 +175,6 @@ export function Extrato() {
       ['Receitas realizadas', null, null, null, null, null, null, null, data.resumo.receitas_realizadas, null],
       ['Despesas em aberto', null, null, null, null, null, null, null, -data.resumo.despesas_aberto, null],
       ['Despesas realizadas', null, null, null, null, null, null, null, -data.resumo.despesas_realizadas, null],
-      ['Transferências: entradas', null, null, null, null, null, null, null, data.resumo.transferencias_entrada, null],
-      ['Transferências: saídas', null, null, null, null, null, null, null, -data.resumo.transferencias_saida, null],
       ['Total do período', null, null, null, null, null, null, null, data.resumo.total_periodo, null],
       ['Saldo final (realizado)', null, null, null, null, null, null, null, null, data.saldo_final],
     ];
@@ -274,19 +269,13 @@ export function Extrato() {
         )}
 
         {data && (
-          <div className="cartoes-extrato com-transf">
+          <div className="cartoes-extrato">
             {cartoes.map(([t, s, label, valor, cor]) => (
               <button key={label} className={'cartao-extrato' + (cartaoAtivo(t, s) ? ' ativo' : '')} onClick={() => atalho(t, s)}>
                 <span className="kpi-label">{label} (R$)</span>
                 <span className={'cartao-valor num ' + cor}>{brl(valor)}</span>
               </button>
             ))}
-            <button className={'cartao-extrato' + (soTransf ? ' ativo' : '')} onClick={atalhoTransf} title="Transferências entre contas próprias: não são receita nem despesa">
-              <span className="kpi-label">Transferências (R$)</span>
-              <span className="cartao-valor num">{/* Cada transferência tem saída numa conta e entrada noutra: o valor transferido é um lado só. */}
-                {brl(Math.max(data.resumo.transferencias_entrada, data.resumo.transferencias_saida))}</span>
-              <span className="small muted"><span className="entrada">↓ {brl(data.resumo.transferencias_entrada)}</span> · <span className="saida">↑ {brl(data.resumo.transferencias_saida)}</span></span>
-            </button>
             <button className={'cartao-extrato total' + (!extras.tipos.size && !extras.situacoes.size ? ' ativo' : '')} onClick={() => setExtras((x) => ({ ...x, tipos: new Set(), situacoes: new Set() }))}>
               <span className="kpi-label">Total do período (R$)</span>
               <span className={'cartao-valor num ' + (data.resumo.total_periodo < 0 ? 'alerta' : '')}>{brl(data.resumo.total_periodo)}</span>

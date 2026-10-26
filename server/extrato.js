@@ -128,7 +128,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
   ]);
   const saldoInicial = iniContas.s + movAntes.s;
 
-  const resumo = { receitas_aberto: 0, receitas_realizadas: 0, despesas_aberto: 0, despesas_realizadas: 0, transferencias_entrada: 0, transferencias_saida: 0, total_periodo: 0 };
+  const resumo = { receitas_aberto: 0, receitas_realizadas: 0, despesas_aberto: 0, despesas_realizadas: 0, total_periodo: 0 };
   let saldo = saldoInicial;
   const itens = [];
   for (const l of linhas) {
@@ -144,9 +144,9 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     if (!tem(f.tipos, l.transferencia_id ? 'transferencia' : receita ? 'receita' : 'despesa')) continue;
     if (!tem(f.situacoes, pago ? 'realizado' : sit)) continue;
     // Os cartões somam exatamente o que está na lista: qualquer filtro (inclusive tipo e situação) muda os números.
-    // Transferência entre contas próprias não é receita nem despesa: tem cartão próprio (entradas e saídas).
-    if (l.transferencia_id) resumo[receita ? 'transferencias_entrada' : 'transferencias_saida'] += valor;
-    else resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
+    // Transferência entra nos cartões pelo lado dela (entrada soma em receitas, saída em despesas);
+    // desmarcando "Transferência" no filtro Tipo, sai da lista e dos cartões.
+    resumo[`${receita ? 'receitas' : 'despesas'}_${pago ? 'realizadas' : 'aberto'}`] += valor;
     itens.push({ ...l, situacao: sit, valor_extrato: receita ? valor : -valor, saldo: pago ? saldo : null });
   }
   resumo.total_periodo = resumo.receitas_aberto + resumo.receitas_realizadas - resumo.despesas_aberto - resumo.despesas_realizadas;
