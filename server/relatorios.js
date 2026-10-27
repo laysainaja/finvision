@@ -6,6 +6,12 @@ export const relatoriosRouter = express.Router({ mergeParams: true });
 
 /** Filtro SQL (categorias com alias "c") que deixa de fora transferências e empréstimos: não são receita nem despesa. */
 export const DENTRO_DO_RESULTADO = "COALESCE(c.dre, '') <> 'fora_resultado'";
+/**
+ * Para as análises (recebimentos, pagamentos, por cliente/fornecedor, centro de custo): tudo o que entra e sai,
+ * inclusive aportes, reserva e empréstimos. Só ficam de fora as transferências entre contas próprias (se anulam).
+ * A DRE (e a margem, que sai dela) continua com DENTRO_DO_RESULTADO.
+ */
+const SEM_TRANSFERENCIA = "l.transferencia_id IS NULL AND COALESCE(c.nome, '') !~* '^transfer'";
 
 // ---------- Período e regime ----------
 
@@ -30,14 +36,14 @@ function lerPeriodo(q) {
   return { de, ate, regime, meses: mesesEntre(de, ate), contaId: optId(q.conta_id) };
 }
 
-/** Valores agrupados por mês e pela chave pedida, já no regime escolhido. */
-function movimentos({ eid, de, ate, regime, contaId }, chave) {
+/** Valores agrupados por mês e pela chave pedida, já no regime escolhido. "filtro": o que entra (padrão: só o resultado, como na DRE). */
+function movimentos({ eid, de, ate, regime, contaId }, chave, filtro = DENTRO_DO_RESULTADO) {
   const data = regime === 'caixa' ? 'l.data_pagamento' : 'l.vencimento';
   const valor = regime === 'caixa' ? 'l.valor_pago' : 'COALESCE(l.valor_pago, l.valor)';
   return all(
     `SELECT l.tipo, to_char(${data}, 'YYYY-MM') AS mes, ${chave} AS chave, SUM(${valor})::bigint AS valor
      FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
-     WHERE l.empresa_id = :eid AND ${data} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO} ${contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
+     WHERE l.empresa_id = :eid AND ${data} BETWEEN :de AND :ate AND ${filtro} ${contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
      GROUP BY 1, 2, 3`,
     { eid, de, ate, ...(contaId && { conta: contaId }) },
   );
@@ -130,7 +136,7 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
        ${valor} AS valor, l.data_pagamento, l.vencimento, l.juros, l.multa, l.desconto
      FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
        LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id
-     WHERE l.empresa_id = :eid AND l.tipo = :tipo AND ${data} BETWEEN :de AND :ate AND ${DENTRO_DO_RESULTADO} AND ${chave} = :nome
+     WHERE l.empresa_id = :eid AND l.tipo = :tipo AND ${data} BETWEEN :de AND :ate AND ${SEM_TRANSFERENCIA} AND ${chave} = :nome
        ${mes ? `AND to_char(${data}, 'YYYY-MM') = :mes` : ''} ${p.contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
      ORDER BY ${data}, l.id LIMIT 2000`,
     { eid: req.eid, tipo, de: p.de, ate: p.ate, nome: req.query.nome, ...(mes && { mes }), ...(p.contaId && { conta: p.contaId }) },
@@ -140,7 +146,7 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
 relatoriosRouter.get('/relatorios/analise', async (req, res) => {
   const p = lerPeriodo(req.query);
   const { tipo, agrupar, chave } = chaveAnalise(req.query);
-  const linhas = (await movimentos({ eid: req.eid, ...p }, chave)).filter((r) => r.tipo === tipo);
+  const linhas = (await movimentos({ eid: req.eid, ...p }, chave, SEM_TRANSFERENCIA)).filter((r) => r.tipo === tipo);
 
   const itens = new Map();
   const totais = somaMeses(p.meses);
