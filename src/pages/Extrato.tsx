@@ -106,14 +106,17 @@ export function Extrato() {
     return () => clearTimeout(t);
   }, [busca]);
 
-  const { data, erro } = useApi<Movimentacoes>(
-    `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), cartao, v: versao })}`,
-  );
-  useEffect(() => (setSelecionados(new Set()), setPagina(0)), [data]);
+  const consulta = `${base}/movimentacoes${qs({ de, ate, q, conta_id: conta, ocultar_categorias: [...ocultas].sort().join(','), ...paramsFiltros(extras), cartao })}`;
+  const { data, erro } = useApi<Movimentacoes>(`${consulta}${consulta.includes('?') ? '&' : '?'}v=${versao}`);
+  // Volta à primeira página só quando muda o período ou um filtro; depois de salvar (só recarrega), fica onde estava.
+  useEffect(() => setPagina(0), [consulta]);
+  useEffect(() => setSelecionados(new Set()), [data]);
 
   const itens = data?.itens ?? [];
-  const paginaItens = itens.slice(pagina * porPagina, (pagina + 1) * porPagina);
   const totalPaginas = Math.max(1, Math.ceil(itens.length / porPagina));
+  // Se a lista encolheu (ex.: excluiu o último da página), fica na última página que ainda existe.
+  useEffect(() => { if (data && pagina > totalPaginas - 1) setPagina(totalPaginas - 1); }, [data, pagina, totalPaginas]);
+  const paginaItens = itens.slice(pagina * porPagina, (pagina + 1) * porPagina);
   const abertos = itens.filter((i) => !i.data_pagamento);
   const selecao = itens.filter((i) => selecionados.has(i.id));
   const filtrosAtivos = [q, conta].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
