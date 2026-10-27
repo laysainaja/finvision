@@ -295,6 +295,9 @@ function Layout() {
           {rotaValida === 'relatorios/clientes' && (
             <Analise key="cli" tipo="receber" agruparInicial="contato" fixo titulo="Receita por cliente" descricao="Quanto cada cliente pagou, mês a mês, e a participação de cada um no faturamento." />
           )}
+          {rotaValida === 'relatorios/centros' && (
+            <Analise key="centros" tipo="pagar" agruparInicial="centro" fixo alternarTipo titulo="Centro de custo" descricao="Quanto saiu (ou entrou) em cada centro de custo, mês a mês, e o peso de cada um no total. Lançamento sem centro de custo aparece em “Sem centro de custo”." />
+          )}
           {rotaValida === 'relatorios/fornecedores' && (
             <Analise key="forn" tipo="pagar" agruparInicial="contato" fixo titulo="Gastos por fornecedor" descricao="Quanto foi pago a cada fornecedor, mês a mês." />
           )}

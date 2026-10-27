@@ -76,7 +76,7 @@ export interface RelatorioAnalise {
   ate: string;
   regime: Regime;
   tipo: TipoLancamento;
-  agrupar: 'categoria' | 'contato';
+  agrupar: AgruparAnalise;
   meses: string[];
   itens: { nome: string; valores: PorMes; total: number; av: number }[];
   totais: PorMes;
@@ -302,6 +302,7 @@ export interface Resumo {
 }
 
 export type Agrupamento = 'dia' | 'semana' | 'mes';
+export type AgruparAnalise = 'categoria' | 'contato' | 'centro';
 
 export interface PeriodoFluxo {
   inicio: string;

@@ -3,7 +3,7 @@ import { qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { addMeses, brl, dataBR, fimMes, hoje, inicioMes, mesCurto, num } from '../lib/format';
 import { exportarCSV, pctCSV } from '../lib/exportar';
-import type { Regime, RelatorioAnalise, RelatorioDRE, RelatorioVencidos, TipoLancamento } from '../types';
+import type { AgruparAnalise, Regime, RelatorioAnalise, RelatorioDRE, RelatorioVencidos, TipoLancamento } from '../types';
 import { Icon, Modal } from '../components/ui';
 import { SeletorPeriodo, periodoDe, nomePeriodo, type Periodo as PeriodoSel } from '../components/SeletorPeriodo';
 import { TopoRelatorio } from '../components/LogoEmpresa';
@@ -20,6 +20,7 @@ export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: s
   { id: 'pagamentos', nome: 'Análise de pagamentos', descricao: 'Pagamentos por categoria (ou por fornecedor) em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'clientes', nome: 'Receita por cliente', descricao: 'Quanto cada cliente pagou em cada mês e o peso de cada um no faturamento.', grupo: 'Análise financeira', segmento: 'servico' },
   { id: 'fornecedores', nome: 'Gastos por fornecedor', descricao: 'Quanto foi pago a cada fornecedor em cada mês.', grupo: 'Análise financeira', segmento: 'produto' },
+  { id: 'centros', nome: 'Centro de custo', descricao: 'Despesas (ou receitas) por centro de custo em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'vencidos', nome: 'Contas vencidas e inadimplência', descricao: 'Valores em atraso por cliente ou fornecedor, separados por faixa de dias.', grupo: 'Análise financeira' },
 ];
 export const relatoriosDoSegmento = (s: Segmento) => RELATORIOS.filter((r) => !r.segmento || r.segmento === s);
@@ -298,19 +299,21 @@ function DetalheAnalise({ filtro, onClose }: { filtro: { tipo: TipoLancamento; a
   );
 }
 
-export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
-  tipo: TipoLancamento; agruparInicial: 'categoria' | 'contato'; fixo?: boolean; titulo: string; descricao: string;
+export function Analise({ tipo: tipoInicial, agruparInicial, fixo, alternarTipo, titulo, descricao }: {
+  tipo: TipoLancamento; agruparInicial: AgruparAnalise; fixo?: boolean; alternarTipo?: boolean; titulo: string; descricao: string;
 }) {
   const { base, versao, empresa } = useEmpresa();
   const [periodo, setPeriodo] = useState(ultimos12);
   const [regime, setRegime] = useState<Regime>('caixa');
   const [agrupar, setAgrupar] = useState(agruparInicial);
+  const [tipo, setTipo] = useState(tipoInicial);
   const { data, erro } = useApi<RelatorioAnalise>(`${base}/relatorios/analise${qs({ tipo, agrupar, de: periodo.de, ate: periodo.ate, regime, v: versao })}`);
   const nomeContato = tipo === 'receber' ? 'Cliente' : 'Fornecedor';
   const cor = tipo === 'receber' ? 'var(--serie-entrada)' : 'var(--serie-saida)';
+  const rotulo = agrupar === 'categoria' ? 'Categoria' : agrupar === 'centro' ? 'Centro de custo' : nomeContato;
   const top = data?.itens.slice(0, 10) ?? [];
   const [detalhe, setDetalhe] = useState<{ nome: string; mes?: string } | null>(null);
-  const exportar = () => data && exportarCSV(`${titulo} ${empresa?.nome} ${data.de} a ${data.ate}`, [agrupar === 'categoria' ? 'Categoria' : nomeContato, ...data.meses.map((m) => mesCurto(m + '-01')), 'Total', 'AV%'],
+  const exportar = () => data && exportarCSV(`${titulo} ${empresa?.nome} ${data.de} a ${data.ate}`, [rotulo, ...data.meses.map((m) => mesCurto(m + '-01')), 'Total', 'AV%'],
     [...data.itens.map((i) => [i.nome, ...data.meses.map((m) => i.valores[m]), i.total, pctCSV(i.av)]), ['Total', ...data.meses.map((m) => data.totais[m]), data.total, '100%']]);
 
   return (
@@ -318,7 +321,12 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
       <Cabecalho titulo={titulo} descricao={descricao} />
       <div className="card">
         <BarraFiltros periodo={periodo} setPeriodo={setPeriodo} regime={regime} setRegime={setRegime} onExportar={exportar}
-          extra={!fixo && (
+          extra={alternarTipo ? (
+            <div className="tabs">
+              <button className={'tab' + (tipo === 'pagar' ? ' ativo' : '')} onClick={() => setTipo('pagar')}>Despesas</button>
+              <button className={'tab' + (tipo === 'receber' ? ' ativo' : '')} onClick={() => setTipo('receber')}>Receitas</button>
+            </div>
+          ) : !fixo && (
             <div className="tabs">
               <button className={'tab' + (agrupar === 'categoria' ? ' ativo' : '')} onClick={() => setAgrupar('categoria')}>Por categoria</button>
               <button className={'tab' + (agrupar === 'contato' ? ' ativo' : '')} onClick={() => setAgrupar('contato')}>Por {nomeContato.toLowerCase()}</button>
@@ -349,7 +357,7 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
                 <table className="tabela-relatorio">
                   <thead>
                     <tr>
-                      <th className="col-fixa">{agrupar === 'categoria' ? 'Categoria' : nomeContato}</th>
+                      <th className="col-fixa">{rotulo}</th>
                       <th className="r">Total</th>
                       <th className="r">AV%</th>
                       {data.meses.map((m) => <th key={m} className="r">{mesCurto(m + '-01')}</th>)}
@@ -385,7 +393,7 @@ export function Analise({ tipo, agruparInicial, fixo, titulo, descricao }: {
         )}
       </div>
       {detalhe && <DetalheAnalise filtro={{ tipo, agrupar, nome: detalhe.nome, mes: detalhe.mes, de: periodo.de, ate: periodo.ate, regime }} onClose={() => setDetalhe(null)} />}
-      {data && data.itens.length > 0 && <p className="muted small" style={{ margin: 0 }}>Clique no nome de uma {agrupar === 'categoria' ? 'categoria' : (tipo === 'receber' ? 'cliente' : 'fornecedor')} para ver os lançamentos (no valor de um mês: dois cliques). Um clique nos valores vai somando.</p>}
+      {data && data.itens.length > 0 && <p className="muted small" style={{ margin: 0 }}>Clique no nome de {agrupar === 'categoria' ? 'uma categoria' : agrupar === 'centro' ? 'um centro de custo' : (tipo === 'receber' ? 'um cliente' : 'um fornecedor')} para ver os lançamentos (no valor de um mês: dois cliques). Um clique nos valores vai somando.</p>}
     </>
   );
 }

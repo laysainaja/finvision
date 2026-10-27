@@ -104,11 +104,16 @@ relatoriosRouter.get('/relatorios/dre', async (req, res) => {
 
 // ---------- Análise de recebimentos / pagamentos ----------
 
-/** Como cada linha da análise é agrupada. Por cliente/fornecedor: pelo cadastro (o mesmo cliente escrito de jeitos diferentes soma junto). */
+/**
+ * Como cada linha da análise é agrupada. Por cliente/fornecedor: pelo cadastro (o mesmo cliente escrito de jeitos
+ * diferentes soma junto). Por centro de custo: pelo texto do lançamento; vazio vira "Sem centro de custo".
+ */
 function chaveAnalise(q) {
   const tipo = q.tipo === 'pagar' ? 'pagar' : 'receber';
-  const agrupar = ['categoria', 'contato'].includes(q.agrupar) ? q.agrupar : 'categoria';
-  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')` : `COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
+  const agrupar = ['categoria', 'contato', 'centro'].includes(q.agrupar) ? q.agrupar : 'categoria';
+  const chave = agrupar === 'categoria' ? `COALESCE(c.nome, 'Sem categoria')`
+    : agrupar === 'centro' ? `COALESCE(NULLIF(trim(l.centro_custo), ''), 'Sem centro de custo')`
+    : `COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem ${tipo === 'receber' ? 'cliente' : 'fornecedor'} informado')`;
   return { tipo, agrupar, chave };
 }
 
