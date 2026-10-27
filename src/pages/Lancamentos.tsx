@@ -3,8 +3,8 @@ import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR } from '../lib/format';
 import { NOME_TIPO_RECEITA, type Lancamento, type Resumo, type TipoLancamento } from '../types';
-import { Icon, Modal, StatusBadge, useAcao } from '../components/ui';
-import { BaixaModal, LancamentoForm, NOME_TIPO } from '../components/LancamentoForms';
+import { Icon, StatusBadge, useAcao } from '../components/ui';
+import { BaixaModal, ExcluirModal, LancamentoForm, NOME_TIPO } from '../components/LancamentoForms';
 
 type FiltroStatus = 'em_aberto' | 'vencido' | 'pago' | 'todos';
 
@@ -65,10 +65,6 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
     const aviso = l.extrato_id ? '\n\nEle também será desvinculado do extrato bancário.' : '';
     if (!confirm(`Estornar "${l.descricao}"? Ele volta a ficar em aberto.${aviso}`)) return;
     if (await acao(() => api.post(`${base}/lancamentos/${l.id}/estorno`), 'Lançamento estornado.')) recarregar();
-  };
-
-  const apagar = async (l: Lancamento, escopo?: 'grupo') => {
-    if (await acao(() => api.del(`${base}/lancamentos/${l.id}${qs({ escopo })}`), 'Lançamento excluído.')) concluir();
   };
 
   const cor = tipo === 'pagar' ? 'saida' : 'entrada';
@@ -235,31 +231,7 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
 
       {form && <LancamentoForm tipo={tipo} lancamento={form.lancamento} contatos={contatos} onClose={() => setForm(null)} onSaved={concluir} />}
       {baixa && <BaixaModal lancamentos={baixa} onClose={() => setBaixa(null)} onSaved={concluir} />}
-      {excluir && (
-        <Modal
-          titulo="Excluir lançamento"
-          onClose={() => setExcluir(null)}
-          rodape={
-            <>
-              <button className="btn" onClick={() => setExcluir(null)}>Cancelar</button>
-              {excluir.grupo_parcelas && (
-                <button className="btn btn-danger" onClick={() => apagar(excluir, 'grupo')}>
-                  Esta e as demais em aberto
-                </button>
-              )}
-              <button className="btn btn-primary" onClick={() => apagar(excluir)}>
-                {excluir.grupo_parcelas ? 'Só esta parcela' : 'Excluir'}
-              </button>
-            </>
-          }
-        >
-          <p style={{ margin: 0 }}>
-            Excluir <b>{excluir.descricao}</b>
-            {excluir.total_parcelas && ` (parcela ${excluir.parcela}/${excluir.total_parcelas})`} de {brl(excluir.valor)}?
-          </p>
-          {excluir.status === 'pago' && <div className="aviso-box"><Icon name="alerta" /> Este lançamento já foi baixado; excluir altera o saldo da conta.</div>}
-        </Modal>
-      )}
+      {excluir && <ExcluirModal lancamento={excluir} onClose={() => setExcluir(null)} onDone={concluir} />}
     </>
   );
 }

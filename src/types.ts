@@ -109,6 +109,7 @@ export interface ItemExtrato {
   data: string;
   parcela: number | null;
   total_parcelas: number | null;
+  grupo_parcelas: string | null;
   categoria_id: number | null;
   categoria_nome: string | null;
   conta_bancaria_id: number | null;

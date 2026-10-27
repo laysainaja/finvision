@@ -5,7 +5,7 @@ import { brl, dataBR, hoje } from '../lib/format';
 import { NOME_TIPO_RECEITA, type ItemExtrato, type Lancamento, type Movimentacoes, type SituacaoExtrato, type TipoLancamento } from '../types';
 import { Icon, useAcao } from '../components/ui';
 import { exportarCSV } from '../lib/exportar';
-import { BaixaModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
+import { BaixaModal, ExcluirModal, LancamentoForm, TransferenciaModal } from '../components/LancamentoForms';
 import { SeletorPeriodo, periodoDe, type Periodo } from '../components/SeletorPeriodo';
 import { FiltroCategorias, SEM_CATEGORIA } from '../components/FiltroCategorias';
 import { MaisFiltros, filtrosVazios, contarFiltros, paramsFiltros, OPCOES_TIPO, OPCOES_SITUACAO, type FiltrosExtras } from '../components/MaisFiltros';
@@ -99,6 +99,7 @@ export function Extrato() {
   const [transferir, setTransferir] = useState(false);
   // Cartão clicado: filtra a lista sem mudar os números dos cartões (esses só mudam pelos filtros).
   const [cartao, setCartao] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState<ItemExtrato | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(busca), 300);
@@ -140,13 +141,7 @@ export function Extrato() {
     if (!confirm(`Estornar "${i.descricao}"? Ele volta a ficar em aberto.`)) return;
     if (await acao(() => api.post(`${base}/lancamentos/${i.id}/estorno`), 'Lançamento estornado.')) recarregar();
   };
-  const excluir = async (i: ItemExtrato) => {
-    const msg = i.transferencia_id
-      ? `Excluir a transferência "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}? A saída e a entrada nas duas contas serão excluídas.`
-      : `Excluir "${i.descricao}" de ${brl(Math.abs(i.valor_extrato))}?`;
-    if (!confirm(msg)) return;
-    if (await acao(() => api.del(`${base}/lancamentos/${i.id}`), 'Lançamento excluído.')) recarregar();
-  };
+  const excluir = (i: ItemExtrato) => setExcluindo(i);
   // Exporta exatamente o que está na tela (período e filtros), no modelo aprovado: saldo anterior, movimentos, totais.
   const exportar = () => {
     if (!data) return;
@@ -385,6 +380,13 @@ export function Extrato() {
 
       {novo && <LancamentoForm tipo={novo.tipo} lancamento={novo.lancamento} onClose={() => setNovo(null)} onSaved={concluir} />}
       {transferir && <TransferenciaModal onClose={() => setTransferir(false)} onSaved={() => (setTransferir(false), recarregar())} />}
+      {excluindo && (
+        <ExcluirModal
+          lancamento={{ ...excluindo, valor: Math.abs(excluindo.valor_extrato) }}
+          onClose={() => setExcluindo(null)}
+          onDone={() => (setExcluindo(null), recarregar())}
+        />
+      )}
       {baixa && <BaixaModal lancamentos={baixa as unknown as Lancamento[]} onClose={() => setBaixa(null)} onSaved={concluir} />}
     </>
   );

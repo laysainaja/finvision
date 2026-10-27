@@ -103,7 +103,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
 
   const linhas = await all(
     `SELECT l.id, l.tipo, l.descricao, l.contato, l.contato_id, l.tipo_receita, l.documento, l.valor, l.valor_pago, l.vencimento, l.data_pagamento,
-       l.parcela, l.total_parcelas, l.categoria_id, l.conta_bancaria_id, l.transferencia_id,
+       l.parcela, l.total_parcelas, l.grupo_parcelas, l.categoria_id, l.conta_bancaria_id, l.transferencia_id,
        l.centro_custo, l.forma_pagamento, l.data_prevista, l.origem_baixa, ${ORIGEM_SQL} AS origem,
        to_char(l.criado_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS cadastro,
        c.nome AS categoria_nome, cb.nome AS conta_nome,

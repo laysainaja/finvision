@@ -570,15 +570,24 @@ e.put('/lancamentos/:id', async (req, res) => {
 
 e.delete('/lancamentos/:id', async (req, res) => {
   const atual = await buscarLancamento(req.params.id, req.eid);
-  const escopo = req.query.escopo; // 'grupo' apaga também as parcelas em aberto do mesmo grupo
+  // Parcelas/recorrência: "proximos" (este e os seguintes) ou "todos" apagam também os outros do grupo que
+  // ainda estão em aberto; os já pagos/recebidos ficam, para não mexer no saldo. ("grupo" = nome antigo de "todos".)
+  const escopo = req.query.escopo === 'grupo' ? 'todos' : ['proximos', 'todos'].includes(req.query.escopo) ? req.query.escopo : 'este';
+  let outros = 0;
   await transaction(async () => {
     await all('DELETE FROM lancamentos WHERE id = :id', { id: atual.id });
     if (atual.transferencia_id) await all('DELETE FROM lancamentos WHERE transferencia_id = :t AND empresa_id = :eid', { t: atual.transferencia_id, eid: req.eid });
-    if (escopo === 'grupo' && atual.grupo_parcelas) {
-      await all('DELETE FROM lancamentos WHERE grupo_parcelas = :g AND empresa_id = :eid AND data_pagamento IS NULL', { g: atual.grupo_parcelas, eid: req.eid });
+    if (escopo !== 'este' && atual.grupo_parcelas) {
+      const r = await all(
+        `DELETE FROM lancamentos WHERE grupo_parcelas = :g AND empresa_id = :eid AND data_pagamento IS NULL AND transferencia_id IS NULL
+           ${escopo === 'proximos' ? 'AND (CASE WHEN parcela IS NOT NULL AND :parcela > 0 THEN parcela > :parcela ELSE vencimento > :venc::date END)' : ''}
+         RETURNING id`,
+        { g: atual.grupo_parcelas, eid: req.eid, parcela: atual.parcela ?? 0, venc: atual.vencimento },
+      );
+      outros = r.length;
     }
   });
-  res.json({ ok: true });
+  res.json({ ok: true, outros_excluidos: outros });
 });
 
 /**

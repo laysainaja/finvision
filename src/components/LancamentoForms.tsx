@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { api, useApi } from '../lib/api';
+import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR, hoje, addMeses } from '../lib/format';
 import type { Contato, Lancamento, TipoLancamento, TipoReceita } from '../types';
-import { Field, Modal, MoneyInput, useToast } from './ui';
+import { Field, Icon, Modal, MoneyInput, useToast } from './ui';
 
 export const FORMAS_PAGAMENTO = ['Pix', 'Boleto bancário', 'Transferência bancária', 'Cartão de crédito', 'Cartão de débito', 'Dinheiro', 'Débito automático', 'Cheque', 'Outro'];
 
@@ -254,6 +254,74 @@ export function LancamentoForm({
         )}
         <button type="submit" hidden />
       </form>
+    </Modal>
+  );
+}
+
+/** O mínimo que a confirmação de exclusão precisa (serve para Lancamento e para item do extrato). */
+export interface ParaExcluir {
+  id: number;
+  descricao: string;
+  valor: number;
+  parcela: number | null;
+  total_parcelas: number | null;
+  grupo_parcelas: string | null;
+  transferencia_id?: string | null;
+  data_pagamento: string | null;
+}
+
+/** Confirmação de exclusão; em parcelas/recorrência deixa escolher: só este, este e os próximos, ou todos. */
+export function ExcluirModal({ lancamento: l, onClose, onDone }: { lancamento: ParaExcluir; onClose: () => void; onDone: () => void }) {
+  const { base } = useEmpresa();
+  const toast = useToast();
+  const [escopo, setEscopo] = useState<'este' | 'proximos' | 'todos'>('este');
+  const [enviando, setEnviando] = useState(false);
+  const emGrupo = !!l.grupo_parcelas && !l.transferencia_id;
+  const apagar = async () => {
+    setEnviando(true);
+    try {
+      const r = await api.del<{ outros_excluidos?: number }>(`${base}/lancamentos/${l.id}${qs({ escopo: emGrupo ? escopo : null })}`);
+      toast(r.outros_excluidos ? `Excluído este e mais ${r.outros_excluidos} lançamento(s).` : l.transferencia_id ? 'Transferência excluída.' : 'Lançamento excluído.');
+      onDone();
+    } catch (e) {
+      toast((e as Error).message, true);
+      setEnviando(false);
+    }
+  };
+  return (
+    <Modal
+      titulo={l.transferencia_id ? 'Excluir transferência' : 'Excluir lançamento'}
+      onClose={onClose}
+      rodape={
+        <>
+          <button className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn btn-danger" onClick={apagar} disabled={enviando}>Excluir</button>
+        </>
+      }
+    >
+      <p style={{ margin: 0 }}>
+        Excluir <b>{l.descricao}</b>
+        {l.total_parcelas && l.total_parcelas > 1 ? ` (${l.parcela}/${l.total_parcelas})` : ''} de {brl(l.valor)}?
+      </p>
+      {l.transferencia_id && <div className="muted small">A saída e a entrada nas duas contas serão excluídas.</div>}
+      {emGrupo && (
+        <fieldset className="escopo-edicao">
+          <legend>Este lançamento se repete. Excluir:</legend>
+          {(
+            [
+              ['este', 'Somente este lançamento'],
+              ['proximos', 'Este e os próximos'],
+              ['todos', l.total_parcelas ? `Todos os ${l.total_parcelas}` : 'Todos'],
+            ] as const
+          ).map(([v, label]) => (
+            <label key={v} className="check">
+              <input type="radio" name="escopo-excluir" checked={escopo === v} onChange={() => setEscopo(v)} /> {label}
+            </label>
+          ))}
+          {escopo !== 'este' && <div className="muted small">Os que já foram pagos ou recebidos continuam (para não mudar o saldo das contas).</div>}
+        </fieldset>
+      )}
+      {l.data_pagamento && <div className="aviso-box"><Icon name="alerta" /> Este lançamento já foi baixado; excluir altera o saldo da conta.</div>}
     </Modal>
   );
 }
