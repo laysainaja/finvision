@@ -325,7 +325,10 @@ export function Extrato() {
                     <td className="num">{dataBR(i.data)}</td>
                     <td>
                       <div className="desc-principal">
-                        {i.descricao}
+                        {/* Clicar no descritivo abre o lançamento para editar (transferência não se edita). */}
+                        {i.transferencia_id ? i.descricao : (
+                          <button type="button" className="desc-link" onClick={() => editar(i)} title="Abrir para editar">{i.descricao}</button>
+                        )}
                         {i.total_parcelas && <span className="muted small"> · {i.parcela}/{i.total_parcelas}</span>}
                       </div>
                       <div className="desc-sub">

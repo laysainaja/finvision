@@ -498,3 +498,8 @@ td > .barra-h-trilho { display: block; min-width: 80px; }
   .table-wrap { overflow: visible !important; max-height: none !important; }
   tr { break-inside: avoid; }
 }
+
+/* Extrato: descritivo clicável abre o lançamento para editar */
+.desc-link { all: unset; cursor: pointer; font: inherit; color: inherit; }
+.desc-link:hover { color: var(--primary); text-decoration: underline; }
+.desc-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
