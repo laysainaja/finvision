@@ -134,8 +134,30 @@ export function LancamentoForm({
           enviar();
         }}
       >
+        {/* Alcance da alteração no topo, para não passar despercebido. */}
+        {emGrupo && (
+          <fieldset className="full escopo-edicao">
+            <legend>Este lançamento é a parcela {lancamento.parcela}/{lancamento.total_parcelas}. Aplicar a alteração em:</legend>
+            {(
+              [
+                ['este', 'Somente este lançamento'],
+                ['proximos', 'Este e os próximos'],
+                ['todos', `Todos os ${lancamento.total_parcelas}`],
+              ] as const
+            ).map(([v, label]) => (
+              <label key={v} className="check">
+                <input type="radio" name="escopo" checked={escopo === v} onChange={() => setEscopo(v)} /> {label}
+              </label>
+            ))}
+            {escopo !== 'este' && (
+              <div className="muted small">
+                Descrição, {nomes.contato.toLowerCase()}, categoria, documento e observação mudam em todos; valor, conta e data (deslocada pelos mesmos dias) só nos que ainda estão em aberto.
+              </div>
+            )}
+          </fieldset>
+        )}
         <Field label="Descrição" className="full">
-          <input className="input" autoFocus value={f.descricao} onChange={(e) => set('descricao', e.target.value)} placeholder="Ex.: Aluguel de outubro" />
+          <input className="input" autoFocus={!emGrupo} value={f.descricao} onChange={(e) => set('descricao', e.target.value)} placeholder="Ex.: Aluguel de outubro" />
         </Field>
         <Field label={nomes.contato}>
           <input className="input" list="contatos" value={f.contato} onChange={(e) => set('contato', e.target.value)} placeholder="Escolha ou digite um novo" />
@@ -231,27 +253,6 @@ export function LancamentoForm({
         <Field label="Observação" className="full">
           <textarea className="input" rows={2} value={f.observacao} onChange={(e) => set('observacao', e.target.value)} />
         </Field>
-        {emGrupo && (
-          <fieldset className="full escopo-edicao">
-            <legend>Este lançamento é a parcela {lancamento.parcela}/{lancamento.total_parcelas}. Aplicar a alteração em:</legend>
-            {(
-              [
-                ['este', 'Somente este lançamento'],
-                ['proximos', 'Este e os próximos'],
-                ['todos', `Todos os ${lancamento.total_parcelas}`],
-              ] as const
-            ).map(([v, label]) => (
-              <label key={v} className="check">
-                <input type="radio" name="escopo" checked={escopo === v} onChange={() => setEscopo(v)} /> {label}
-              </label>
-            ))}
-            {escopo !== 'este' && (
-              <div className="muted small">
-                Descrição, {nomes.contato.toLowerCase()}, categoria, documento e observação mudam em todos; valor, conta e data (deslocada pelos mesmos dias) só nos que ainda estão em aberto.
-              </div>
-            )}
-          </fieldset>
-        )}
         <button type="submit" hidden />
       </form>
     </Modal>
