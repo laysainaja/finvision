@@ -68,9 +68,12 @@ export function LancamentoForm({
     parcelas: 1,
     repeticao: 'parcelar' as 'parcelar' | 'repetir',
     jaPago: false,
-    data_pagamento: hoje(),
+    data_pagamento: lancamento?.vencimento ?? hoje(),
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  // A data do pagamento acompanha o vencimento até a pessoa digitar outra.
+  const [pagamentoManual, setPagamentoManual] = useState(false);
+  const mudarVencimento = (v: string) => setF((x) => ({ ...x, vencimento: v, ...(!pagamentoManual && { data_pagamento: v }) }));
   // Editando uma parcela/repetição: aplicar só nela, nela e nas próximas, ou em todas do grupo.
   const emGrupo = editando && !!lancamento.grupo_parcelas && (lancamento.total_parcelas ?? 0) > 1;
   const [escopo, setEscopo] = useState<'este' | 'proximos' | 'todos'>('este');
@@ -189,7 +192,7 @@ export function LancamentoForm({
           <MoneyInput value={f.valor} onChange={(v) => set('valor', v)} />
         </Field>
         <Field label={f.parcelas > 1 ? 'Vencimento da 1ª parcela' : 'Vencimento'}>
-          <input className="input" type="date" value={f.vencimento} onChange={(e) => set('vencimento', e.target.value)} />
+          <input className="input" type="date" value={f.vencimento} onChange={(e) => mudarVencimento(e.target.value)} />
         </Field>
         <Field label="Conta bancária">
           <select className="select input" value={f.conta_bancaria_id} onChange={(e) => set('conta_bancaria_id', e.target.value === '' ? '' : Number(e.target.value))}>
@@ -244,7 +247,7 @@ export function LancamentoForm({
             )}
             {f.jaPago && f.parcelas === 1 && (
               <Field label={nomes.data}>
-                <input className="input" type="date" value={f.data_pagamento} onChange={(e) => set('data_pagamento', e.target.value)} />
+                <input className="input" type="date" value={f.data_pagamento} onChange={(e) => { setPagamentoManual(true); set('data_pagamento', e.target.value); }} />
               </Field>
             )}
           </>
