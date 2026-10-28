@@ -516,3 +516,5 @@ td > .barra-h-trilho { display: block; min-width: 80px; }
 /* LTV por cliente: 4 cartões de resumo */
 .ltv-cartoes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 1100px) { .ltv-cartoes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.barra-pct { display: inline-block; width: 70%; height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; vertical-align: middle; }
+.barra-pct span { display: block; height: 100%; background: var(--serie-saida); }

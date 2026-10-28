@@ -208,3 +208,92 @@ dashboardRouter.get('/relatorios/ltv', async (req, res) => {
       .sort((a, b) => b.total - a.total),
   });
 });
+
+// ---------- Dashboard de produto ----------
+// Para quem vende mercadoria (vendas avulsas, sem cliente fixo): faturamento e comparações, CMV, markup, margens,
+// ponto de equilíbrio e onde o dinheiro está indo. Pelo que foi de fato recebido e pago; sem aportes, reserva,
+// empréstimos e transferências (como na DRE).
+const VARIAVEIS = ['variavel', 'investimento', 'imposto_anuncio'];
+const RETIRADAS = /retirad|pr[oó].?labore/i;
+
+dashboardRouter.get('/relatorios/dashboard-produto', async (req, res) => {
+  check(isDate(req.query.de) && isDate(req.query.ate) && req.query.de <= req.query.ate, 'Período inválido.');
+  const { de, ate } = req.query;
+  const meses = [];
+  for (let m = de.slice(0, 8) + '01'; m <= ate; m = addMonths(m, 1)) {
+    meses.push(m.slice(0, 7));
+    check(meses.length <= 36, 'Escolha um período de até 36 meses.');
+  }
+  const n = meses.length;
+  const desloca = (lista, k) => lista.map((m) => addMonths(m + '-01', -k).slice(0, 7));
+  const linhas = await all(
+    `SELECT to_char(l.data_pagamento, 'YYYY-MM') AS mes, l.tipo, COALESCE(c.dre, '') AS dre, COALESCE(c.grupo_forecast, '') AS grupo,
+       COALESCE(c.nome, 'Sem categoria') AS categoria, SUM(l.valor_pago)::bigint AS valor
+     FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+     WHERE l.empresa_id = :eid AND l.data_pagamento BETWEEN :ini AND :ate AND ${DENTRO_DO_RESULTADO} AND ${SEM_TRANSFERENCIA}
+     GROUP BY 1, 2, 3, 4, 5`,
+    { eid: req.eid, ini: addMonths(de.slice(0, 8) + '01', -Math.max(12, n)), ate },
+  );
+  for (const l of linhas) l.valor = Number(l.valor);
+  const venda = (l) => l.tipo === 'receber' && (l.dre === '' || l.dre === 'receita_bruta');
+  const faturamentoDe = (lista) => { const s = new Set(lista); return linhas.reduce((t, l) => t + (s.has(l.mes) && venda(l) ? l.valor : 0), 0); };
+
+  const indicadores = (lista) => {
+    const s = new Set(lista);
+    const sel = linhas.filter((l) => s.has(l.mes));
+    const soma = (fn) => sel.reduce((t, l) => t + (fn(l) ? l.valor : 0), 0);
+    const pagar = (l) => l.tipo === 'pagar';
+    const faturamento = soma(venda);
+    const outras = soma((l) => l.tipo === 'receber' && !venda(l));
+    const deducoes = soma((l) => pagar(l) && l.dre === 'deducao');
+    const cmv = soma((l) => pagar(l) && l.dre === 'custo');
+    const variaveis = soma((l) => pagar(l) && VARIAVEIS.includes(l.grupo));
+    const despesas = soma(pagar);
+    const fixos = despesas - variaveis;
+    const lucroBruto = faturamento - deducoes - cmv;
+    const mc = faturamento - variaveis;
+    const mcPct = pct(mc, faturamento);
+    const resultado = faturamento + outras - despesas;
+    // Ponto de equilíbrio: quanto precisa vender por mês para pagar os custos fixos com a margem de contribuição.
+    const fixoMensal = fixos / lista.length;
+    const pe = mcPct > 0 ? Math.round(fixoMensal / (mcPct / 100)) : null;
+    const fatMensal = faturamento / lista.length;
+    return {
+      faturamento, outras_receitas: outras, deducoes, cmv, custos_variaveis: variaveis, custos_fixos: fixos, despesas,
+      receita_liquida: faturamento - deducoes,
+      cmv_pct: pct(cmv, faturamento),
+      markup: cmv ? Math.round((faturamento / cmv) * 100) / 100 : null,
+      lucro_bruto: lucroBruto, margem_bruta_pct: pct(lucroBruto, faturamento),
+      margem_contribuicao: mc, margem_contribuicao_pct: mcPct,
+      fixos_pct: pct(fixos, faturamento),
+      faturamento_mensal: Math.round(fatMensal),
+      ponto_equilibrio: pe,
+      margem_seguranca_pct: pe === null || !fatMensal ? null : pct(fatMensal - pe, fatMensal),
+      resultado, margem_liquida_pct: pct(resultado, faturamento),
+      retiradas: soma((l) => pagar(l) && RETIRADAS.test(l.categoria)),
+    };
+  };
+
+  const total = indicadores(meses);
+  // Média por dia: até hoje, se o período ainda não acabou.
+  const fimDias = ate < hoje() ? ate : hoje();
+  const dias = fimDias < de ? 0 : Math.round((Date.parse(fimDias) - Date.parse(de)) / 86400000) + 1;
+  const anterior = faturamentoDe(desloca(meses, n));
+  const anoPassado = faturamentoDe(desloca(meses, 12));
+  const porCategoria = new Map();
+  for (const l of linhas) if (l.tipo === 'pagar' && meses.includes(l.mes)) porCategoria.set(l.categoria, (porCategoria.get(l.categoria) ?? 0) + l.valor);
+  const maioresDespesas = [...porCategoria].sort((a, b) => b[1] - a[1]).slice(0, 8)
+    .map(([categoria, valor]) => ({ categoria, valor, pct_faturamento: pct(valor, total.faturamento), pct_despesas: pct(valor, total.despesas) }));
+
+  res.json({
+    de, ate, meses,
+    total: {
+      ...total,
+      media_dia: dias ? Math.round(total.faturamento / dias) : null,
+      faturamento_anterior: anterior, variacao_anterior_pct: anterior ? pct(total.faturamento - anterior, anterior) : null,
+      faturamento_ano_passado: anoPassado, variacao_ano_passado_pct: anoPassado ? pct(total.faturamento - anoPassado, anoPassado) : null,
+    },
+    maiores_despesas: maioresDespesas,
+    por_mes: meses.map((mes) => ({ mes, ...indicadores([mes]) })),
+  });
+});

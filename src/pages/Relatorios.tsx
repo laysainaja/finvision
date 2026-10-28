@@ -12,7 +12,7 @@ import { TopoRelatorio } from '../components/LogoEmpresa';
 
 type Segmento = 'servico' | 'produto';
 export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: string; segmento?: Segmento }[] = [
-  { id: 'dashboard', nome: 'Dashboard', descricao: 'Novos clientes, churn, LTV, ticket médio, ARPU, margem de contribuição e margem de lucro.', grupo: 'Resultado' },
+  { id: 'dashboard', nome: 'Dashboard', descricao: 'Serviço: novos clientes, churn, LTV, ticket médio e ARPU. Produto: faturamento, CMV, markup, ponto de equilíbrio. Nos dois: margens e lucro.', grupo: 'Resultado' },
   { id: 'mensal', nome: 'Relatório semanal', descricao: 'O que foi realizado no período: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
   { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
