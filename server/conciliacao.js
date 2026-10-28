@@ -262,7 +262,13 @@ conciliacaoRouter.post('/extrato/auto-conciliar', async (req, res) => {
 
 conciliacaoRouter.post('/extrato/:id/conciliar', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
-  await transaction(() => conciliar(item, req.body.lancamento_id, req.eid));
+  await transaction(async () => {
+    await conciliar(item, req.body.lancamento_id, req.eid);
+    // Centro de custo escolhido na hora de conciliar (vazio = sem centro de custo).
+    if (req.body.centro_custo !== undefined) {
+      await all('UPDATE lancamentos SET centro_custo = :cc WHERE id = :id AND empresa_id = :eid', { cc: optText(req.body.centro_custo), id: optId(req.body.lancamento_id), eid: req.eid });
+    }
+  });
   res.json(await buscarItem(item.id, req.eid));
 });
 
@@ -280,6 +286,7 @@ conciliacaoRouter.post('/extrato/:id/criar-lancamento', async (req, res) => {
       descricao,
       contato: optText(req.body.contato),
       categoria_id: categoriaId,
+      centro_custo: optText(req.body.centro_custo),
       conta_bancaria_id: item.conta_bancaria_id,
       valor: Math.abs(item.valor),
       vencimento: item.data,

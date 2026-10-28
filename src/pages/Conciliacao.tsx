@@ -28,6 +28,8 @@ export function Conciliacao() {
     if (contaId === '' && ativas[0]) setContaId(ativas[0].id);
   }, [ativas, contaId]);
 
+  // Centros de custo já usados, para escolher na hora de conciliar (uma lista para todas as linhas).
+  const opcoes = useApi<{ centros_custo: string[] }>(`${base}/movimentacoes/opcoes?v=${versao}`);
   const lista = useApi<ExtratoItem[]>(contaId && aba !== 'todos' ? `${base}/extrato${qs({ conta_id: contaId, status: aba, v: versao })}` : null);
   const itens = lista.data ?? [];
   const conta = contas.find((c) => c.id === contaId);
@@ -177,6 +179,7 @@ export function Conciliacao() {
             <h3>Lançamentos do FinVision</h3>
           </div>
         )}
+        <datalist id="centros-custo-conc">{opcoes.data?.centros_custo.map((c) => <option key={c} value={c} />)}</datalist>
         {visiveis.slice(0, limite).map((i) => <LinhaConciliacao key={i.id} item={i} />)}
         {lista.data && visiveis.length === 0 && (
           <div className="vazio">{filtroTexto || sentido ? 'Nenhum movimento com esse filtro.' : aba === 'pendente' ? 'Nenhum movimento pendente nesta conta. 🎉' : 'Nenhum item aqui.'}</div>
@@ -221,6 +224,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const [descricao, setDescricao] = useState(item.descricao ?? '');
   const [categoria, setCategoria] = useState('');
   const [contato, setContato] = useState('');
+  const [centro, setCentro] = useState('');
   const [outraConta, setOutraConta] = useState<number | ''>(outras[0]?.id ?? '');
   const [busca, setBusca] = useState('');
   const [q, setQ] = useState('');
@@ -249,14 +253,20 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
     if (ok) recarregar();
   };
 
+  // Ao escolher um lançamento, o centro de custo dele já vem preenchido (dá para trocar antes de conciliar).
+  useEffect(() => {
+    const l = [...(sugestoes.data ?? []), ...(encontrados.data ?? [])].find((s) => s.id === escolhido);
+    if (l) setCentro(l.centro_custo ?? '');
+  }, [escolhido]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const conciliar = () => {
     if (modo === 'sugestoes' || modo === 'buscar') {
       if (!escolhido) return toast('Escolha um lançamento para conciliar.', true);
-      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: escolhido }), 'Conciliado.');
+      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: escolhido, centro_custo: centro }), 'Conciliado.');
     }
     if (modo === 'novo') {
       if (!descricao.trim()) return toast('Informe a descrição.', true);
-      return rodar(() => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null, contato: contato || null }), 'Lançamento criado e conciliado.');
+      return rodar(() => api.post(`${base}/extrato/${item.id}/criar-lancamento`, { descricao, categoria_id: categoria || null, contato: contato || null, centro_custo: centro || null }), 'Lançamento criado e conciliado.');
     }
     if (!outraConta) return toast('Escolha a outra conta da transferência.', true);
     const nome = outras.find((c) => c.id === outraConta)?.nome;
@@ -363,8 +373,11 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                         {categorias.filter((c) => c.tipo === (entrada ? 'receita' : 'despesa')).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                       </select>
                     </Field>
-                    <Field label={entrada ? 'Cliente' : 'Fornecedor'} className="full">
+                    <Field label={entrada ? 'Cliente' : 'Fornecedor'}>
                       <input className="input" value={contato} onChange={(e) => setContato(e.target.value)} placeholder="Opcional" />
+                    </Field>
+                    <Field label="Centro de custo">
+                      <input className="input" list="centros-custo-conc" value={centro} onChange={(e) => setCentro(e.target.value)} placeholder="Opcional" />
                     </Field>
                   </>
                 ) : (
@@ -376,6 +389,11 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                   </Field>
                 )}
               </div>
+            )}
+            {(modo === 'sugestoes' || modo === 'buscar') && escolhido && (
+              <Field label="Centro de custo do lançamento escolhido">
+                <input className="input" list="centros-custo-conc" value={centro} onChange={(e) => setCentro(e.target.value)} placeholder="Sem centro de custo" />
+              </Field>
             )}
             {modo === 'transferencia' && <div className="muted small">Não entra na DRE nem no Forecast; o saldo das duas contas é ajustado.</div>}
           </>
