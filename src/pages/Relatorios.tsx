@@ -12,7 +12,7 @@ import { TopoRelatorio } from '../components/LogoEmpresa';
 
 type Segmento = 'servico' | 'produto';
 export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: string; segmento?: Segmento }[] = [
-  { id: 'mensal', nome: 'Relatório', descricao: 'O que foi realizado no mês: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
+  { id: 'mensal', nome: 'Relatório semanal', descricao: 'O que foi realizado no período: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
   { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
   { id: 'margem', nome: 'Margem bruta e CMV', descricao: 'Quanto sobra das vendas depois do custo das mercadorias, mês a mês.', grupo: 'Resultado', segmento: 'produto' },
@@ -518,23 +518,23 @@ export function RelatorioMensal() {
   const { base, versao, empresa } = useEmpresa();
   const [periodo, setPeriodo] = useState<PeriodoSel>(() => periodoDe('mes'));
   const { data, erro } = useApi<RelMensal>(`${base}/relatorios/mensal${qs({ de: periodo.de, ate: periodo.ate, v: versao })}`);
-  const exportar = () => data && exportarCSV(`Relatório ${empresa?.nome} ${data.de} a ${data.ate}`, ['', 'Lançamentos', 'Valor (R$)'], [
+  const exportar = () => data && exportarCSV(`Relatório semanal ${empresa?.nome} ${data.de} a ${data.ate}`, ['', 'Lançamentos', 'Valor (R$)'], [
     ['Receitas realizadas', data.n_receitas, data.receitas], ['Despesas realizadas', data.n_despesas, data.despesas], ['Total do período', null, data.total], [],
     ['RECEITA POR CLIENTE'], ...data.clientes.map((c) => [c.nome, c.n, c.total]), [],
     ['ANÁLISE DE PAGAMENTOS (por categoria)'], ...data.pagamentos.map((c) => [c.nome, c.n, c.total]),
-  ], [`Relatório · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · o que foi pago e recebido`]);
+  ], [`Relatório semanal · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · o que foi pago e recebido`]);
 
   // PDF pelo próprio navegador: a janela de impressão já vem pronta (sem menu e botões), é só escolher "Salvar como PDF".
   const baixarPDF = () => {
     const anterior = document.title;
-    document.title = `Relatório - ${empresa?.nome ?? ''} - ${nomePeriodo(periodo).replace(/\//g, '-')}`;
+    document.title = `Relatório semanal - ${empresa?.nome ?? ''} - ${nomePeriodo(periodo).replace(/\//g, '-')}`;
     window.print();
     document.title = anterior;
   };
 
   return (
     <>
-      <TopoRelatorio titulo="Relatório" periodo={nomePeriodo(periodo)}
+      <TopoRelatorio titulo="Relatório semanal" periodo={nomePeriodo(periodo)}
         descricao="O que já foi realizado no período: receitas recebidas, despesas pagas, receita por cliente e para onde foi o dinheiro." />
       <div className="card">
         <div className="toolbar">
