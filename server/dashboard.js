@@ -25,7 +25,7 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
   const p = { eid: req.eid, de, ate, antes };
 
   const mesHoje = hoje().slice(0, 7);
-  const [receitas, abertos, despesas, fora] = await Promise.all([
+  const [receitas, abertos, despesas, fora, historico] = await Promise.all([
     all(
       `SELECT to_char(l.data_pagamento, 'YYYY-MM') AS mes, l.data_pagamento >= :de::date AS no_periodo, l.tipo_receita, COALESCE(c.dre, '') AS dre,
          COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente, l.valor_pago AS valor
@@ -58,11 +58,20 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
        GROUP BY 1`,
       p,
     ),
+    // Tudo o que cada cliente já pagou, mês a mês (para o LTV: mesmo critério do LTV por cliente, menos transferências).
+    all(
+      `SELECT COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
+         to_char(l.data_pagamento, 'YYYY-MM') AS mes, SUM(l.valor_pago)::bigint AS valor
+       FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.data_pagamento <= :ate AND ${SEM_TRANSFERENCIA}
+       GROUP BY 1, 2`,
+      p,
+    ),
   ]);
 
   // ---------- Por mês ----------
   const vazio = () => ({ receita: 0, nova: 0, recorrente: 0, ativos: new Set(), novos: new Set(), recorrentes: new Set(), base: new Set(),
-    variavel: 0, midia: 0, fixo: 0, fora: 0 });
+    clientes: new Set(), variavel: 0, midia: 0, fixo: 0, fora: 0 });
   const mesAnterior = antes.slice(0, 7);
   const porMes = Object.fromEntries([mesAnterior, ...meses].map((m) => [m, vazio()]));
   for (const r of receitas) {
@@ -74,10 +83,18 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
     m.receita += r.valor;
     m.ativos.add(r.cliente);
     if (!venda) continue;
+    m.clientes.add(r.cliente); // cliente ativo no mês: comprou (de qualquer tipo) ou tem cobrança recorrente em aberto
     if (r.tipo_receita === 'nova') (m.nova += r.valor, m.novos.add(r.cliente));
     if (r.tipo_receita === 'recorrente') (m.recorrente += r.valor, m.recorrentes.add(r.cliente));
   }
-  for (const a of abertos) porMes[a.mes]?.base.add(a.cliente);
+  for (const a of abertos) {
+    porMes[a.mes]?.base.add(a.cliente);
+    if (a.mes !== mesAnterior) porMes[a.mes]?.clientes.add(a.cliente);
+  }
+  // Total pago por cliente até o fim de um mês
+  const pagos = new Map();
+  for (const h of historico) (pagos.get(h.cliente) ?? pagos.set(h.cliente, []).get(h.cliente)).push(h);
+  const pagoAte = (cliente, mes) => (pagos.get(cliente) ?? []).reduce((s, h) => s + (h.mes <= mes ? h.valor : 0), 0);
   for (const d of despesas) {
     const m = porMes[d.mes];
     if (!m) continue;
@@ -109,6 +126,10 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
     const churn = baseAnterior ? perdidos / baseAnterior : null; // churn mensal médio
     const arpu = div(receita, ativosCM);
     const mcPct = pct(contribuicao, receita);
+    // LTV: média do que cada cliente ativo no período já pagou desde o início (até o fim do período).
+    const clientes = new Set(lista.flatMap((x) => [...x.m.clientes]));
+    const fim = lista[lista.length - 1].mes;
+    const ltv = div([...clientes].reduce((s, c) => s + pagoAte(c, fim), 0), clientes.size);
     return {
       receita, receita_nova: nova, receita_recorrente: recorrente,
       novos_clientes: new Set(lista.flatMap((x) => [...x.m.novos])).size,
@@ -121,8 +142,9 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
       churn_pct: churn === null ? null : Math.round(churn * 10000) / 100,
       clientes_perdidos: perdidos,
       vida_media_meses: churn ? Math.round((1 / churn) * 10) / 10 : null,
-      // LTV = quanto cada cliente deixa de margem durante o tempo em que fica: ARPU × margem de contribuição ÷ churn mensal
-      ltv: churn && arpu !== null && mcPct !== null ? Math.round((arpu * (mcPct / 100)) / churn) : null,
+      clientes_ltv: clientes.size,
+      ltv,
+      ltv_margem: ltv === null || mcPct === null ? null : Math.round(ltv * (mcPct / 100)),
     };
   };
 

@@ -14,7 +14,7 @@ interface Indicadores {
   custos_variaveis: number; custos_fixos: number; fora_resultado: number;
   margem_contribuicao: number; margem_contribuicao_pct: number | null;
   resultado: number; margem_lucro_pct: number | null;
-  churn_pct: number | null; clientes_perdidos: number; vida_media_meses: number | null; ltv: number | null;
+  churn_pct: number | null; clientes_perdidos: number; vida_media_meses: number | null; clientes_ltv: number; ltv: number | null; ltv_margem: number | null;
 }
 interface RespostaDashboard { de: string; ate: string; meses: string[]; total: Indicadores; por_mes: (Indicadores & { mes: string })[] }
 
@@ -34,7 +34,8 @@ const INDICADORES: { id: keyof Indicadores; nome: string; f: Formato; como: stri
   { id: 'ticket_total', nome: 'Ticket médio – novos + recorrentes', f: 'moeda', como: '(Nova venda + recorrente) ÷ clientes novos e recorrentes de cada mês.' },
   { id: 'arpu', nome: 'ARPU', f: 'moeda', como: 'Receita média por cliente ativo por mês: toda a receita ÷ clientes que pagaram em cada mês.' },
   { id: 'churn_pct', nome: 'Churn mensal', f: 'pct', como: 'Clientes da base recorrente do mês anterior que não pagaram no mês ÷ base do mês anterior (média do período).' },
-  { id: 'ltv', nome: 'LTV', f: 'moeda', como: 'Quanto cada cliente deixa de margem enquanto fica: ARPU × margem de contribuição ÷ churn mensal.' },
+  { id: 'ltv', nome: 'LTV', f: 'moeda', como: 'Média do que cada cliente ativo no período já pagou desde o primeiro recebimento (até o fim do período). Ativo = comprou no mês ou tem cobrança recorrente em aberto; no trimestre, semestre ou ano, todos os que estiveram ativos.' },
+  { id: 'ltv_margem', nome: 'LTV de margem', f: 'moeda', como: 'LTV × margem de contribuição do período.' },
   { id: 'margem_contribuicao_pct', nome: 'Margem de contribuição', f: 'pct', como: '(Receita − custos variáveis − anúncios e impostos sobre anúncios) ÷ receita.' },
   { id: 'margem_lucro_pct', nome: 'Margem de lucro', f: 'pct', como: 'Resultado do mês (como no Forecast: inclui aportes, reserva e empréstimos) ÷ receita.' },
 ];
@@ -88,7 +89,7 @@ export function Dashboard() {
               <Cartao titulo="Novos clientes" valor={fmt(t.novos_clientes, 'numero')} sub={`${t.clientes_ativos} cliente(s) pagaram no período`} dica={como('novos_clientes')} />
               <Cartao titulo="Churn mensal" valor={fmt(t.churn_pct, 'pct')} sub={`${t.clientes_perdidos} cliente(s) saíram da base`} dica={como('churn_pct')} />
               <Cartao titulo="Tempo médio de permanência" valor={fmt(t.vida_media_meses, 'meses')} sub="1 ÷ churn mensal" dica="Quanto tempo, em média, um cliente fica: 1 ÷ churn mensal." />
-              <Cartao titulo="LTV" valor={fmt(t.ltv, 'moeda')} sub={t.churn_pct ? 'ARPU × margem de contribuição ÷ churn' : 'Sem churn no período: não dá para calcular'} dica={como('ltv')}
+              <Cartao titulo="LTV" valor={fmt(t.ltv, 'moeda')} sub={`Média de ${t.clientes_ltv} cliente(s) ativo(s) · de margem: ${fmt(t.ltv_margem, 'moeda')}`} dica={como('ltv')}
                 link={{ href: '#/relatorios/ltv', texto: 'Ver LTV por cliente →' }} />
             </div>
           </div>
