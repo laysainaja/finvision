@@ -497,6 +497,7 @@ td > .barra-h-trilho { display: block; min-width: 80px; }
   .so-impressao { display: block; }
   .table-wrap { overflow: visible !important; max-height: none !important; }
   tr { break-inside: avoid; }
+  .kpi a, .dash-como { display: none !important; }
 }
 
 /* Extrato: descritivo clicável abre o lançamento para editar */

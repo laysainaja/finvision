@@ -69,6 +69,14 @@ export function Dashboard() {
       [`Dashboard · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · pelo que foi recebido e pago`]);
   };
 
+  // PDF pelo próprio navegador, como no Relatório semanal: é só escolher "Salvar como PDF".
+  const baixarPDF = () => {
+    const anterior = document.title;
+    document.title = `Dashboard - ${empresa?.nome ?? ''} - ${nomePeriodo(periodo).replace(/\//g, '-')}`;
+    window.print();
+    document.title = anterior;
+  };
+
   return (
     <>
       <TopoRelatorio titulo="Dashboard" periodo={nomePeriodo(periodo)}
@@ -76,7 +84,8 @@ export function Dashboard() {
       <div className="card">
         <div className="toolbar">
           <SeletorPeriodo valor={periodo} onChange={setPeriodo} />
-          <button className="btn" style={{ marginLeft: 'auto' }} onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
+          <button className="btn" style={{ marginLeft: 'auto' }} onClick={baixarPDF} disabled={!data}><Icon name="extrato" /> Baixar PDF</button>
+          <button className="btn" onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
         </div>
         {erro && <div className="vazio alerta">{erro}</div>}
       </div>
