@@ -181,7 +181,9 @@ async function sugestoes(item, eid, q) {
     `SELECT l.*, ${STATUS_SQL} AS status FROM lancamentos l
      WHERE l.empresa_id = :eid AND l.tipo = :tipo
        AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
-       AND (l.data_pagamento IS NULL OR l.conta_bancaria_id = :conta)
+       -- Sugestões e busca: só o que está em aberto. O que já foi pago é casado sozinho ao importar o extrato
+       -- (casarJaLancados), não aparece como sugestão.
+       AND l.data_pagamento IS NULL
        ${filtro}
      LIMIT 500`,
     p,
