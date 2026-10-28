@@ -11,7 +11,7 @@ export const DENTRO_DO_RESULTADO = "COALESCE(c.dre, '') <> 'fora_resultado'";
  * inclusive aportes, reserva e empréstimos. Só ficam de fora as transferências entre contas próprias (se anulam).
  * A DRE (e a margem, que sai dela) continua com DENTRO_DO_RESULTADO.
  */
-const SEM_TRANSFERENCIA = "l.transferencia_id IS NULL AND COALESCE(c.nome, '') !~* '^transfer'";
+export const SEM_TRANSFERENCIA = "l.transferencia_id IS NULL AND COALESCE(c.nome, '') !~* '^transfer'";
 
 // ---------- Período e regime ----------
 
@@ -25,7 +25,8 @@ function mesesEntre(de, ate) {
   return meses;
 }
 
-function lerPeriodo(q) {
+/** "comMeses: false" quando não precisa da lista de meses (ex.: lançamentos de um cliente desde o começo). */
+function lerPeriodo(q, { comMeses = true } = {}) {
   const h = hoje();
   const fimMesAtual = addDays(addMonths(h.slice(0, 8) + '01', 1), -1);
   const ate = isDate(q.ate) ? q.ate : fimMesAtual;
@@ -33,7 +34,7 @@ function lerPeriodo(q) {
   check(de <= ate, 'A data inicial deve ser anterior à final.');
   // Caixa: o que foi pago/recebido, na data do pagamento. Competência: tudo, pela data de vencimento.
   const regime = q.regime === 'competencia' ? 'competencia' : 'caixa';
-  return { de, ate, regime, meses: mesesEntre(de, ate), contaId: optId(q.conta_id) };
+  return { de, ate, regime, meses: comMeses ? mesesEntre(de, ate) : [], contaId: optId(q.conta_id) };
 }
 
 /** Valores agrupados por mês e pela chave pedida, já no regime escolhido. "filtro": o que entra (padrão: só o resultado, como na DRE). */
@@ -125,7 +126,7 @@ function chaveAnalise(q) {
 
 // Os lançamentos que formam uma linha da análise (ao clicar na categoria ou no cliente/fornecedor).
 relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
-  const p = lerPeriodo(req.query);
+  const p = lerPeriodo(req.query, { comMeses: false });
   const { tipo, chave } = chaveAnalise(req.query);
   check(typeof req.query.nome === 'string' && req.query.nome, 'Informe a linha da análise.');
   const mes = /^\d{4}-\d{2}$/.test(req.query.mes ?? '') ? req.query.mes : null;

@@ -39,12 +39,13 @@ const INDICADORES: { id: keyof Indicadores; nome: string; f: Formato; como: stri
   { id: 'margem_lucro_pct', nome: 'Margem de lucro', f: 'pct', como: 'Resultado do mês (como no Forecast: inclui aportes, reserva e empréstimos) ÷ receita.' },
 ];
 
-function Cartao({ titulo, valor, sub, dica }: { titulo: string; valor: string; sub?: string; dica: string }) {
+function Cartao({ titulo, valor, sub, dica, link }: { titulo: string; valor: string; sub?: string; dica: string; link?: { href: string; texto: string } }) {
   return (
     <div className="card kpi" title={dica}>
       <span className="kpi-label">{titulo}</span>
       <span className="kpi-valor">{valor}</span>
       {sub && <span className="kpi-sub">{sub}</span>}
+      {link && <a className="small" href={link.href}>{link.texto}</a>}
     </div>
   );
 }
@@ -87,7 +88,8 @@ export function Dashboard() {
               <Cartao titulo="Novos clientes" valor={fmt(t.novos_clientes, 'numero')} sub={`${t.clientes_ativos} cliente(s) pagaram no período`} dica={como('novos_clientes')} />
               <Cartao titulo="Churn mensal" valor={fmt(t.churn_pct, 'pct')} sub={`${t.clientes_perdidos} cliente(s) saíram da base`} dica={como('churn_pct')} />
               <Cartao titulo="Tempo médio de permanência" valor={fmt(t.vida_media_meses, 'meses')} sub="1 ÷ churn mensal" dica="Quanto tempo, em média, um cliente fica: 1 ÷ churn mensal." />
-              <Cartao titulo="LTV" valor={fmt(t.ltv, 'moeda')} sub={t.churn_pct ? 'ARPU × margem de contribuição ÷ churn' : 'Sem churn no período: não dá para calcular'} dica={como('ltv')} />
+              <Cartao titulo="LTV" valor={fmt(t.ltv, 'moeda')} sub={t.churn_pct ? 'ARPU × margem de contribuição ÷ churn' : 'Sem churn no período: não dá para calcular'} dica={como('ltv')}
+                link={{ href: '#/relatorios/ltv', texto: 'Ver LTV por cliente →' }} />
             </div>
           </div>
 

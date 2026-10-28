@@ -21,6 +21,7 @@ export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: s
   { id: 'pagamentos', nome: 'Análise de pagamentos', descricao: 'Pagamentos por categoria (ou por fornecedor) em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'clientes', nome: 'Receita por cliente', descricao: 'Quanto cada cliente pagou em cada mês e o peso de cada um no faturamento.', grupo: 'Análise financeira', segmento: 'servico' },
   { id: 'fornecedores', nome: 'Gastos por fornecedor', descricao: 'Quanto foi pago a cada fornecedor em cada mês.', grupo: 'Análise financeira', segmento: 'produto' },
+  { id: 'ltv', nome: 'LTV por cliente', descricao: 'Quanto cada cliente já pagou desde o começo, há quanto tempo é cliente e se continua ativo.', grupo: 'Análise financeira' },
   { id: 'centros', nome: 'Centro de custo', descricao: 'Despesas (ou receitas) por centro de custo em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'vencidos', nome: 'Contas vencidas e inadimplência', descricao: 'Valores em atraso por cliente ou fornecedor, separados por faixa de dias.', grupo: 'Análise financeira' },
 ];
@@ -559,6 +560,118 @@ export function RelatorioMensal() {
         </>
       )}
       <p className="muted small" style={{ margin: 0 }}>Conta só o que já foi pago ou recebido, na data do pagamento. Toda despesa entra (inclusive empréstimos e reserva); transferências entre as contas da própria empresa ficam de fora, porque se anulam.</p>
+    </>
+  );
+}
+
+// ---------- LTV por cliente ----------
+
+interface ClienteLTV { nome: string; desde: string; ultimo: string; meses: number; recebimentos: number; total: number; ticket_mensal: number; ltv_margem: number | null; situacao: 'ativo' | 'perdido'; perdido_desde: string | null }
+type OrdemLTV = 'total' | 'ltv_margem' | 'meses' | 'ticket_mensal' | 'desde' | 'nome';
+
+/** Todo o histórico de cada cliente: quanto já pagou (LTV), há quanto tempo é cliente e se ainda está ativo. */
+export function LtvClientes() {
+  const { base, versao, empresa } = useEmpresa();
+  const { data, erro } = useApi<{ hoje: string; margem_contribuicao_pct: number | null; clientes: ClienteLTV[] }>(`${base}/relatorios/ltv?v=${versao}`);
+  const [situacao, setSituacao] = useState<'todos' | 'ativo' | 'perdido'>('todos');
+  const [busca, setBusca] = useState('');
+  const [ordem, setOrdem] = useState<{ col: OrdemLTV; desc: boolean }>({ col: 'total', desc: true });
+  const [detalhe, setDetalhe] = useState<ClienteLTV | null>(null);
+
+  const todos = data?.clientes ?? [];
+  const termo = busca.trim().toLowerCase();
+  const lista = todos
+    .filter((c) => (situacao === 'todos' || c.situacao === situacao) && (!termo || c.nome.toLowerCase().includes(termo)))
+    .sort((a, b) => {
+      const va = a[ordem.col] ?? 0, vb = b[ordem.col] ?? 0;
+      const r = typeof va === 'string' ? va.localeCompare(String(vb)) : (va as number) - (vb as number);
+      return ordem.desc ? -r : r;
+    });
+  const n = lista.length;
+  const media = (fn: (c: ClienteLTV) => number) => (n ? Math.round(lista.reduce((s, c) => s + fn(c), 0) / n) : 0);
+  const ativos = todos.filter((c) => c.situacao === 'ativo').length;
+
+  const Col = ({ col, children, r = true }: { col: OrdemLTV; children: string; r?: boolean }) => (
+    <th className={(r ? 'r ' : '') + 'clicavel'} onClick={() => setOrdem((o) => ({ col, desc: o.col === col ? !o.desc : col !== 'nome' && col !== 'desde' }))} title="Ordenar">
+      {children}{ordem.col === col ? (ordem.desc ? ' ↓' : ' ↑') : ''}
+    </th>
+  );
+  const exportar = () => exportarCSV(`LTV por cliente ${empresa?.nome}`, ['Cliente', 'Situação', 'Desde', 'Último pagamento', 'Meses pagando', 'Ticket mensal', 'Total recebido (LTV)', 'LTV de margem'],
+    lista.map((c) => [c.nome, c.situacao === 'ativo' ? 'Ativo' : `Perdido desde ${mesCurto(c.perdido_desde + '-01')}`, dataBR(c.desde), dataBR(c.ultimo), String(c.meses), c.ticket_mensal, c.total, c.ltv_margem]),
+    [`LTV por cliente · ${empresa?.nome ?? ''}`, `Todo o histórico, pelo que foi recebido · margem de contribuição usada: ${pctCSV(data?.margem_contribuicao_pct ?? null)}`]);
+
+  return (
+    <>
+      <TopoRelatorio titulo="LTV por cliente" descricao="Quanto cada cliente já pagou desde o primeiro recebimento, há quanto tempo é cliente e se continua ativo." />
+      <div className="card">
+        <div className="toolbar">
+          <div className="tabs">
+            {([['todos', `Todos (${todos.length})`], ['ativo', `Ativos (${ativos})`], ['perdido', `Perdidos (${todos.length - ativos})`]] as const).map(([v, label]) => (
+              <button key={v} className={'tab' + (situacao === v ? ' ativo' : '')} onClick={() => setSituacao(v)}>{label}</button>
+            ))}
+          </div>
+          <input className="input grow" placeholder="Buscar cliente…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+          <button className="btn" onClick={exportar} disabled={!data}><Icon name="upload" /> Exportar planilha</button>
+        </div>
+        {erro && <div className="vazio alerta">{erro}</div>}
+        {data && (
+          <div className="cartoes-extrato rel-cartoes ltv-cartoes">
+            <div className="cartao-extrato"><span className="kpi-label">LTV médio (R$)</span><span className="cartao-valor num">{brl(media((c) => c.total))}</span><span className="small muted">total recebido por cliente</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">LTV de margem médio (R$)</span><span className="cartao-valor num">{data.margem_contribuicao_pct === null ? '—' : brl(media((c) => c.ltv_margem ?? 0))}</span><span className="small muted">com margem de contribuição de {data.margem_contribuicao_pct?.toLocaleString('pt-BR') ?? '—'}%</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">Permanência média</span><span className="cartao-valor num">{n ? (lista.reduce((s, c) => s + c.meses, 0) / n).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : '0'} meses</span><span className="small muted">meses em que pagou</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">Ticket mensal médio (R$)</span><span className="cartao-valor num">{brl(media((c) => c.ticket_mensal))}</span><span className="small muted">{n} cliente(s) na lista</span></div>
+          </div>
+        )}
+        {data && (
+          <div className="table-wrap">
+            <table className="tabela-relatorio">
+              <thead>
+                <tr>
+                  <Col col="nome" r={false}>Cliente</Col>
+                  <th>Situação</th>
+                  <Col col="desde" r={false}>Desde</Col>
+                  <th>Último pagamento</th>
+                  <Col col="meses">Meses</Col>
+                  <Col col="ticket_mensal">Ticket mensal</Col>
+                  <Col col="total">Total recebido (LTV)</Col>
+                  <Col col="ltv_margem">LTV de margem</Col>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((c) => (
+                  <tr key={c.nome} className="linha-clicavel">
+                    <td><button className="link-botao" onClick={() => setDetalhe(c)} title="Ver os recebimentos">{c.nome}</button></td>
+                    <td>{c.situacao === 'ativo' ? <span className="badge badge-pago">Ativo</span> : <span className="badge badge-neutro">Perdido desde {mesCurto(c.perdido_desde + '-01')}</span>}</td>
+                    <td className="num">{mesCurto(c.desde)}</td>
+                    <td className="num muted">{dataBR(c.ultimo)}</td>
+                    <td className="r num" data-soma={c.meses} data-formato="numero">{c.meses}</td>
+                    <td className="r num" data-soma={c.ticket_mensal} data-formato="moeda">{num(c.ticket_mensal)}</td>
+                    <td className="r num" data-soma={c.total} data-formato="moeda"><b>{num(c.total)}</b></td>
+                    <td className="r num" data-soma={c.ltv_margem ?? 0} data-formato="moeda">{c.ltv_margem === null ? '—' : num(c.ltv_margem)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {n > 0 && (
+                <tfoot>
+                  <tr>
+                    <td>Total</td><td /><td /><td /><td /><td />
+                    <Valor v={lista.reduce((s, c) => s + c.total, 0)} forte />
+                    <Valor v={lista.reduce((s, c) => s + (c.ltv_margem ?? 0), 0)} forte />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+            {n === 0 && <div className="vazio">Nenhum cliente {termo ? 'com essa busca' : 'nessa situação'}.</div>}
+          </div>
+        )}
+      </div>
+      {detalhe && data && (
+        <DetalheAnalise filtro={{ tipo: 'receber', agrupar: 'contato', nome: detalhe.nome, de: detalhe.desde, ate: data.hoje, regime: 'caixa' }} onClose={() => setDetalhe(null)} />
+      )}
+      <p className="muted small" style={{ margin: 0 }}>
+        Total recebido = tudo o que o cliente já pagou (menos transferências entre contas). LTV de margem = total × margem de contribuição da empresa.
+        Ativo = pagou do mês passado para cá ou tem cobrança em aberto; perdido = desde o mês seguinte ao último pagamento. Clique no nome para ver os recebimentos.
+      </p>
     </>
   );
 }

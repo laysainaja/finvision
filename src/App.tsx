@@ -15,7 +15,7 @@ import { Cadastros } from './pages/Cadastros';
 import { Gestao } from './pages/Gestao';
 import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
-import { Analise, DRE, Margem, RELATORIOS, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
+import { Analise, DRE, LtvClientes, Margem, RELATORIOS, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 import { Contatos } from './pages/Contatos';
 import { Forecast } from './pages/Forecast';
 import { Dashboard } from './pages/Dashboard';
@@ -297,6 +297,7 @@ function Layout() {
           {rotaValida === 'relatorios/clientes' && (
             <Analise key="cli" tipo="receber" agruparInicial="contato" fixo titulo="Receita por cliente" descricao="Quanto cada cliente pagou, mês a mês, e a participação de cada um no faturamento." />
           )}
+          {rotaValida === 'relatorios/ltv' && <LtvClientes />}
           {rotaValida === 'relatorios/centros' && (
             <Analise key="centros" tipo="pagar" agruparInicial="centro" fixo alternarTipo titulo="Centro de custo" descricao="Quanto saiu (ou entrou) em cada centro de custo, mês a mês, e o peso de cada um no total. Lançamento sem centro de custo aparece em “Sem centro de custo”." />
           )}

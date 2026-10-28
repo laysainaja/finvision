@@ -1,7 +1,7 @@
 import express from 'express';
 import { all, hoje } from './db.js';
 import { check, isDate, addMonths } from './util.js';
-import { DENTRO_DO_RESULTADO } from './relatorios.js';
+import { DENTRO_DO_RESULTADO, SEM_TRANSFERENCIA } from './relatorios.js';
 
 // Dashboard: indicadores do período, pelo que foi de fato recebido e pago (caixa, data do pagamento).
 // Mesmas definições do Forecast: cliente = cadastro (ou o nome digitado), base recorrente = quem pagou receita
@@ -131,5 +131,58 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
     de, ate, meses,
     total: indicadores(lista),
     por_mes: lista.map((x) => ({ mes: x.mes, ...indicadores([x]) })),
+  });
+});
+
+// ---------- LTV por cliente ----------
+// Todo o histórico de cada cliente: tudo o que ele já pagou (o LTV realizado), há quanto tempo é cliente e se ainda está
+// ativo. Mesmo critério das análises: entra tudo o que foi recebido, menos transferências entre contas.
+// O nome é o mesmo da Receita por cliente (cadastro, ou o nome digitado), para o clique abrir os mesmos lançamentos.
+const NOME_CLIENTE = `COALESCE(ct.nome, NULLIF(trim(l.contato), ''))`;
+
+dashboardRouter.get('/relatorios/ltv', async (req, res) => {
+  const h = hoje();
+  const mesAnterior = addMonths(h.slice(0, 8) + '01', -1); // pagou do mês passado para cá = ativo
+  const p = { eid: req.eid };
+  const base = `FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
+    WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND ${SEM_TRANSFERENCIA} AND ${NOME_CLIENTE} IS NOT NULL`;
+  const [clientes, abertos, margem] = await Promise.all([
+    all(
+      `SELECT ${NOME_CLIENTE} AS nome, min(l.data_pagamento) AS desde, max(l.data_pagamento) AS ultimo,
+         count(DISTINCT to_char(l.data_pagamento, 'YYYY-MM'))::int AS meses, count(*)::int AS recebimentos, SUM(l.valor_pago)::bigint AS total
+       ${base} AND l.data_pagamento IS NOT NULL GROUP BY 1`,
+      p,
+    ),
+    // Quem tem cobrança em aberto continua sendo cliente (mesmo atrasado).
+    all(`SELECT DISTINCT ${NOME_CLIENTE} AS nome ${base} AND l.data_pagamento IS NULL`, p),
+    // Margem de contribuição da empresa em todo o histórico (como no Dashboard): (receita − variáveis − anúncios) ÷ receita.
+    all(
+      `SELECT l.tipo, COALESCE(c.grupo_forecast, 'fixo') AS grupo, SUM(l.valor_pago)::bigint AS valor
+       FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
+       WHERE l.empresa_id = :eid AND l.data_pagamento IS NOT NULL AND ${DENTRO_DO_RESULTADO}
+       GROUP BY 1, 2`,
+      p,
+    ),
+  ]);
+  const receita = margem.filter((m) => m.tipo === 'receber').reduce((s, m) => s + m.valor, 0);
+  const variaveis = margem.filter((m) => m.tipo === 'pagar' && ['variavel', 'investimento', 'imposto_anuncio'].includes(m.grupo)).reduce((s, m) => s + m.valor, 0);
+  const mc = receita ? (receita - variaveis) / receita : null;
+  const comAberto = new Set(abertos.map((a) => a.nome));
+  res.json({
+    hoje: h,
+    margem_contribuicao_pct: mc === null ? null : Math.round(mc * 10000) / 100,
+    clientes: clientes
+      .map((c) => {
+        const ativo = c.ultimo >= mesAnterior || comAberto.has(c.nome);
+        return {
+          ...c,
+          ticket_mensal: Math.round(c.total / c.meses),
+          ltv_margem: mc === null ? null : Math.round(c.total * mc),
+          situacao: ativo ? 'ativo' : 'perdido',
+          // Perdido desde o mês seguinte ao último pagamento.
+          perdido_desde: ativo ? null : addMonths(c.ultimo.slice(0, 8) + '01', 1).slice(0, 7),
+        };
+      })
+      .sort((a, b) => b.total - a.total),
   });
 });
