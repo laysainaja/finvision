@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { addDias, addMeses, dataBR, fimMes, hoje, inicioMes } from '../lib/format';
 import { Icon } from './ui';
 
-export type ModoPeriodo = 'hoje' | 'semana' | 'mes' | 'ano' | 'ult30' | 'ult12' | 'tudo' | 'personalizado';
+export type ModoPeriodo = 'hoje' | 'semana' | 'mes' | 'trimestre' | 'semestre' | 'ano' | 'ult30' | 'ult12' | 'tudo' | 'personalizado';
 export interface Periodo { modo: ModoPeriodo; de: string; ate: string }
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const OPCOES: { modo: ModoPeriodo; nome: string }[] = [
-  { modo: 'hoje', nome: 'Hoje' }, { modo: 'semana', nome: 'Esta semana' }, { modo: 'mes', nome: 'Este mês' }, { modo: 'ano', nome: 'Este ano' },
+  { modo: 'hoje', nome: 'Hoje' }, { modo: 'semana', nome: 'Esta semana' }, { modo: 'mes', nome: 'Este mês' }, { modo: 'trimestre', nome: 'Este trimestre' },
+  { modo: 'semestre', nome: 'Este semestre' }, { modo: 'ano', nome: 'Este ano' },
   { modo: 'ult30', nome: 'Últimos 30 dias' }, { modo: 'ult12', nome: 'Últimos 12 meses' }, { modo: 'tudo', nome: 'Todo o período' },
 ];
 const diasEntre = (de: string, ate: string) => Math.round((Date.parse(ate) - Date.parse(de)) / 86_400_000);
+// Primeiro mês do trimestre (3 meses) ou semestre (6) que contém a data.
+const inicioBloco = (iso: string, meses: number) => `${iso.slice(0, 4)}-${String(Math.floor((Number(iso.slice(5, 7)) - 1) / meses) * meses + 1).padStart(2, '0')}-01`;
 const inicioSemana = (iso: string) => addDias(iso, -((new Date(iso + 'T12:00:00').getDay() + 6) % 7)); // segunda-feira
 
 /** Período de cada atalho, contado a partir de hoje. */
@@ -18,6 +21,8 @@ export function periodoDe(modo: ModoPeriodo, ref = hoje()): Periodo {
   switch (modo) {
     case 'hoje': return { modo, de: ref, ate: ref };
     case 'semana': return { modo, de: inicioSemana(ref), ate: addDias(inicioSemana(ref), 6) };
+    case 'trimestre': return { modo, de: inicioBloco(ref, 3), ate: fimMes(addMeses(inicioBloco(ref, 3), 2)) };
+    case 'semestre': return { modo, de: inicioBloco(ref, 6), ate: fimMes(addMeses(inicioBloco(ref, 6), 5)) };
     case 'ano': return { modo, de: ref.slice(0, 4) + '-01-01', ate: ref.slice(0, 4) + '-12-31' };
     case 'ult30': return { modo, de: addDias(ref, -29), ate: ref };
     case 'ult12': return { modo, de: addMeses(inicioMes(ref), -11), ate: fimMes(ref) };
@@ -29,6 +34,8 @@ export function periodoDe(modo: ModoPeriodo, ref = hoje()): Periodo {
 /** Mesmo tamanho de período, para trás (-1) ou para frente (1). */
 function andar(p: Periodo, n: number): Periodo {
   if (p.modo === 'mes') return { ...p, de: addMeses(p.de, n), ate: fimMes(addMeses(p.de, n)) };
+  if (p.modo === 'trimestre') return { ...p, de: addMeses(p.de, n * 3), ate: fimMes(addMeses(p.de, n * 3 + 2)) };
+  if (p.modo === 'semestre') return { ...p, de: addMeses(p.de, n * 6), ate: fimMes(addMeses(p.de, n * 6 + 5)) };
   if (p.modo === 'ano' || p.modo === 'ult12') return { ...p, de: addMeses(p.de, n * 12), ate: fimMes(addMeses(p.ate, n * 12)) };
   const dias = diasEntre(p.de, p.ate) + 1;
   return { ...p, de: addDias(p.de, n * dias), ate: addDias(p.ate, n * dias) };
@@ -37,6 +44,9 @@ function andar(p: Periodo, n: number): Periodo {
 export function nomePeriodo(p: Periodo) {
   if (p.modo === 'tudo') return 'Todo o período';
   if (p.modo === 'mes') return `${MESES[Number(p.de.slice(5, 7)) - 1]} de ${p.de.slice(0, 4)}`;
+  if (p.modo === 'trimestre') return `${Math.floor((Number(p.de.slice(5, 7)) - 1) / 3) + 1}º trimestre de ${p.de.slice(0, 4)}`;
+  if (p.modo === 'semestre') return `${Number(p.de.slice(5, 7)) <= 6 ? 1 : 2}º semestre de ${p.de.slice(0, 4)}`;
+  if (p.modo === 'ano') return `Ano de ${p.de.slice(0, 4)}`;
   if (p.de === p.ate) return p.de === hoje() ? `Hoje, ${dataBR(p.de)}` : dataBR(p.de);
   return `${dataBR(p.de)} até ${dataBR(p.ate)}`;
 }

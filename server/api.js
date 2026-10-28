@@ -12,6 +12,7 @@ import { extratoRouter } from './extrato.js';
 import { relatoriosRouter } from './relatorios.js';
 import { contatosRouter, resolverContato } from './contatos.js';
 import { forecastRouter } from './forecast.js';
+import { dashboardRouter } from './dashboard.js';
 
 export const api = express.Router();
 
@@ -708,6 +709,7 @@ e.use(extratoRouter);
 e.use(relatoriosRouter);
 e.use(contatosRouter);
 e.use(forecastRouter);
+e.use(dashboardRouter);
 
 // ---------- Erros ----------
 

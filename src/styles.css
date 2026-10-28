@@ -503,3 +503,11 @@ td > .barra-h-trilho { display: block; min-width: 80px; }
 .desc-link { all: unset; cursor: pointer; font: inherit; color: inherit; }
 .desc-link:hover { color: var(--primary); text-decoration: underline; }
 .desc-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 3px; }
+
+/* Dashboard */
+.dash-grupo { display: flex; flex-direction: column; gap: 10px; }
+.dash-grupo h3 { margin: 0; font-size: 14px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.dash-grupo .kpi { cursor: help; }
+.dash-como summary { cursor: pointer; font-weight: 600; }
+.dash-como ul { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 13px; }
+@media (max-width: 900px) { .dash-grupo .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash-grupo .grid-2 { grid-template-columns: 1fr; } }

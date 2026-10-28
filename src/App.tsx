@@ -18,6 +18,7 @@ import { NOME_SEGMENTO, type Empresa } from './types';
 import { Analise, DRE, Margem, RELATORIOS, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 import { Contatos } from './pages/Contatos';
 import { Forecast } from './pages/Forecast';
+import { Dashboard } from './pages/Dashboard';
 
 type ItemMenu = { id: string; label: string; icon: Parameters<typeof Icon>[0]['name'] };
 type Secao = { secao: string | null; icon?: ItemMenu['icon']; itens: ItemMenu[] };
@@ -281,6 +282,7 @@ function Layout() {
           {rotaValida === 'conciliacao' && <Conciliacao />}
           {rotaValida === 'cadastros' && <Cadastros />}
           {rotaValida === 'contatos' && <Contatos />}
+          {rotaValida === 'relatorios/dashboard' && <Dashboard />}
           {rotaValida === 'relatorios/forecast' && <Forecast />}
                     {(rotaValida === 'relatorios' || rotaValida === 'relatorios/mensal') && <RelatorioMensal />}
           {rotaValida === 'relatorios/dre' && <DRE />}
