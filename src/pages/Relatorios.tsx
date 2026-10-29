@@ -555,12 +555,11 @@ export function RelatorioMensal() {
         </div>
         {erro && <div className="vazio alerta">{erro}</div>}
         {data && (
-          <div className="cartoes-extrato rel-cartoes cartoes-5">
+          <div className="cartoes-extrato rel-cartoes ltv-cartoes">
+            <div className="cartao-extrato"><span className="kpi-label">Saldo em caixa (R$)</span><span className={'cartao-valor num ' + (data.caixa < 0 ? 'alerta' : '')}>{brl(data.caixa)}</span><span className="small muted">em {dataBR(data.referencia)} · {data.contas.length} conta(s)</span></div>
             <div className="cartao-extrato"><span className="kpi-label">Receitas realizadas (R$)</span><span className="cartao-valor num entrada">{brl(data.receitas)}</span><span className="small muted">{data.n_receitas} recebimento(s)</span></div>
             <div className="cartao-extrato"><span className="kpi-label">Despesas realizadas (R$)</span><span className="cartao-valor num saida">{brl(data.despesas)}</span><span className="small muted">{data.n_despesas} pagamento(s)</span></div>
             <div className="cartao-extrato total"><span className="kpi-label">Total do período (R$)</span><span className={'cartao-valor num ' + (data.total < 0 ? 'alerta' : '')}>{brl(data.total)}</span><span className="small muted">receitas − despesas</span></div>
-            <div className="cartao-extrato"><span className="kpi-label">Saldo em caixa (R$)</span><span className={'cartao-valor num ' + (data.caixa < 0 ? 'alerta' : '')}>{brl(data.caixa)}</span><span className="small muted">em {dataBR(data.referencia)} · {data.contas.length} conta(s)</span></div>
-            <div className="cartao-extrato"><span className="kpi-label">Inadimplência (R$)</span><span className={'cartao-valor num ' + (data.inadimplencia ? 'alerta' : '')}>{brl(data.inadimplencia)}</span><span className="small muted">vencido em {dataBR(data.referencia)} · {data.inadimplentes.length} cliente(s)</span></div>
           </div>
         )}
       </div>
@@ -568,42 +567,25 @@ export function RelatorioMensal() {
         <>
           <TabelaParticipacao titulo="Receita por cliente" coluna="Cliente" itens={data.clientes} total={data.receitas} cor="var(--serie-entrada)" />
           <TabelaParticipacao titulo="Análise de pagamentos" coluna="Categoria" itens={data.pagamentos} total={data.despesas} cor="var(--serie-saida)" />
-          <div className="grid grid-2">
-            <div className="card">
-              <div className="card-header"><h2>Saldo em caixa</h2><span className="muted small">em {dataBR(data.referencia)} · {brl(data.caixa)}</span></div>
-              {data.contas.length === 0 ? <div className="vazio">Nenhuma conta bancária cadastrada.</div> : (
-                <div className="table-wrap">
-                  <table className="tabela-relatorio">
-                    <thead><tr><th className="col-fixa">Conta</th><th className="r">Saldo</th></tr></thead>
-                    <tbody>
-                      {data.contas.map((c) => (
-                        <tr key={c.nome}><td className="col-fixa">{c.nome}</td><td className={'r num ' + (c.saldo < 0 ? 'alerta' : '')} data-soma={c.saldo} data-formato="moeda"><b>{num(c.saldo)}</b></td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            <div className="card">
-              <div className="card-header"><h2>Inadimplência</h2><span className="muted small">cobranças vencidas em {dataBR(data.referencia)} · {brl(data.inadimplencia)}</span></div>
-              {data.inadimplentes.length === 0 ? <div className="vazio">Nenhuma cobrança vencida. 🎉</div> : (
-                <div className="table-wrap">
-                  <table className="tabela-relatorio">
-                    <thead><tr><th className="col-fixa">Cliente</th><th className="r">Cobranças</th><th className="r">Maior atraso</th><th className="r">Valor</th></tr></thead>
-                    <tbody>
-                      {data.inadimplentes.map((c) => (
-                        <tr key={c.nome}>
-                          <td className="col-fixa">{c.nome}</td>
-                          <td className="r num muted">{c.n}</td>
-                          <td className="r num muted">{c.maior_atraso} dia(s)</td>
-                          <td className="r num" data-soma={c.total} data-formato="moeda"><b>{num(c.total)}</b></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+          <div className="card">
+            <div className="card-header"><h2>Inadimplência</h2><span className="muted small">cobranças vencidas em {dataBR(data.referencia)} · {brl(data.inadimplencia)}</span></div>
+            {data.inadimplentes.length === 0 ? <div className="vazio">Nenhuma cobrança vencida. 🎉</div> : (
+              <div className="table-wrap">
+                <table className="tabela-relatorio">
+                  <thead><tr><th className="col-fixa">Cliente</th><th className="r">Cobranças</th><th className="r">Maior atraso</th><th className="r">Valor</th></tr></thead>
+                  <tbody>
+                    {data.inadimplentes.map((c) => (
+                      <tr key={c.nome}>
+                        <td className="col-fixa">{c.nome}</td>
+                        <td className="r num muted">{c.n}</td>
+                        <td className="r num muted">{c.maior_atraso} dia(s)</td>
+                        <td className="r num" data-soma={c.total} data-formato="moeda"><b>{num(c.total)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
