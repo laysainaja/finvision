@@ -328,7 +328,7 @@ export async function buscarLancamento(id, eid) {
 }
 
 e.get('/lancamentos', async (req, res) => {
-  const { tipo, status, de, ate, q, conta_id, categoria_id } = req.query;
+  const { tipo, status, de, ate, q, conta_id, categoria_id, tipo_receita } = req.query;
   const where = ['l.empresa_id = :eid'];
   const p = { eid: req.eid, hoje: hoje() };
   if (tipo) (where.push('l.tipo = :tipo'), (p.tipo = tipo));
@@ -340,6 +340,7 @@ e.get('/lancamentos', async (req, res) => {
   if (isDate(ate)) (where.push(`${dataRef} <= :ate`), (p.ate = ate));
   if (conta_id) (where.push('l.conta_bancaria_id = :conta'), (p.conta = idParam(conta_id)));
   if (categoria_id) (where.push('l.categoria_id = :cat'), (p.cat = idParam(categoria_id)));
+  if (['nova', 'recorrente', 'avulsa', 'sem'].includes(tipo_receita)) (where.push("COALESCE(l.tipo_receita, 'sem') = :tr"), (p.tr = tipo_receita));
   if (q) (where.push('(l.descricao ILIKE :q OR l.contato ILIKE :q OR l.documento ILIKE :q)'), (p.q = `%${q}%`));
   const ordem = status === 'pago' ? 'l.data_pagamento DESC' : 'l.vencimento';
   res.json(await all(`${LANC_SELECT} WHERE ${where.join(' AND ')} ORDER BY ${ordem}, l.id LIMIT 2000`, p));

@@ -52,6 +52,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     baixas: lista('baixas'), // manual | conciliacao | sem
     centros: lista('centros'), // nomes; '__sem' = sem centro de custo
     formas: lista('formas'), // nomes; '__sem' = não informada
+    tiposReceita: lista('tipos_receita'), // nova | recorrente | avulsa | sem (só vale para receitas)
     abertoMin: centavos('aberto_min'), abertoMax: centavos('aberto_max'),
     pagoMin: centavos('pago_min'), pagoMax: centavos('pago_max'),
     vencDe: data('venc_de'), vencAte: data('venc_ate'),
@@ -71,6 +72,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
     if (!tem(f.baixas, pago ? l.origem_baixa ?? 'manual' : 'sem')) return false;
     if (!tem(f.centros, l.centro_custo ?? '__sem')) return false;
     if (!tem(f.formas, l.forma_pagamento ?? '__sem')) return false;
+    if (l.tipo === 'receber' && !tem(f.tiposReceita, l.tipo_receita ?? 'sem')) return false;
     if (f.abertoMin !== null || f.abertoMax !== null) {
       if (pago || (f.abertoMin !== null && l.valor < f.abertoMin) || (f.abertoMax !== null && l.valor > f.abertoMax)) return false;
     }

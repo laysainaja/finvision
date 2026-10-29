@@ -21,6 +21,7 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
   const [ate, setAte] = useState('');
   const [categoria, setCategoria] = useState('');
   const [conta, setConta] = useState('');
+  const [tipoReceita, setTipoReceita] = useState('');
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
   const [form, setForm] = useState<{ lancamento?: Lancamento } | null>(null);
   const [baixa, setBaixa] = useState<Lancamento[] | null>(null);
@@ -33,7 +34,7 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
   }, [busca]);
 
   const lista = useApi<Lancamento[]>(
-    `${base}/lancamentos${qs({ tipo, status: status === 'todos' ? null : status, q, de, ate, categoria_id: categoria, conta_id: conta, v: versao })}`,
+    `${base}/lancamentos${qs({ tipo, status: status === 'todos' ? null : status, q, de, ate, categoria_id: categoria, conta_id: conta, tipo_receita: tipo === 'receber' ? tipoReceita : null, v: versao })}`,
   );
   const resumo = useApi<Resumo>(`${base}/resumo?v=${versao}`);
   const r = resumo.data?.[tipo];
@@ -128,6 +129,15 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
               <option key={c.id} value={c.id}>{c.nome}</option>
             ))}
           </select>
+          {tipo === 'receber' && (
+            <select className="select input" value={tipoReceita} onChange={(e) => setTipoReceita(e.target.value)} aria-label="Tipo de receita">
+              <option value="">Todos os tipos</option>
+              <option value="nova">Nova venda</option>
+              <option value="recorrente">Recorrente</option>
+              <option value="avulsa">Avulsa</option>
+              <option value="sem">Sem tipo</option>
+            </select>
+          )}
           <select className="select input" value={conta} onChange={(e) => setConta(e.target.value)}>
             <option value="">Todas as contas</option>
             {contas.map((c) => (

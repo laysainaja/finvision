@@ -130,6 +130,7 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
   const { tipo, chave } = chaveAnalise(req.query);
   check(typeof req.query.nome === 'string' && req.query.nome, 'Informe a linha da análise.');
   const mes = /^\d{4}-\d{2}$/.test(req.query.mes ?? '') ? req.query.mes : null;
+  const tipoReceita = TIPOS_RECEITA_RELATORIO.includes(req.query.tipo_receita) ? req.query.tipo_receita : null;
   const data = p.regime === 'caixa' ? 'l.data_pagamento' : 'l.vencimento';
   const valor = p.regime === 'caixa' ? 'l.valor_pago' : 'COALESCE(l.valor_pago, l.valor)';
   res.json(await all(
@@ -139,9 +140,45 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
        LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id
      WHERE l.empresa_id = :eid AND l.tipo = :tipo AND ${data} BETWEEN :de AND :ate AND ${SEM_TRANSFERENCIA} AND ${chave} = :nome
        ${mes ? `AND to_char(${data}, 'YYYY-MM') = :mes` : ''} ${p.contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
+       ${tipoReceita ? `AND ${TIPO_RECEITA_SQL} = :tipo_receita` : ''}
      ORDER BY ${data}, l.id LIMIT 2000`,
-    { eid: req.eid, tipo, de: p.de, ate: p.ate, nome: req.query.nome, ...(mes && { mes }), ...(p.contaId && { conta: p.contaId }) },
+    { eid: req.eid, tipo, de: p.de, ate: p.ate, nome: req.query.nome, ...(mes && { mes }), ...(p.contaId && { conta: p.contaId }), ...(tipoReceita && { tipo_receita: tipoReceita }) },
   ));
+});
+
+// ---------- Receita por tipo (nova venda, recorrente, avulsa) ----------
+// Mesmo critério da análise de recebimentos (entra tudo, menos transferências). Sem tipo = aportes, reembolsos etc.
+const TIPOS_RECEITA_RELATORIO = ['nova', 'recorrente', 'avulsa', 'sem'];
+const TIPO_RECEITA_SQL = `COALESCE(l.tipo_receita, 'sem')`;
+
+relatoriosRouter.get('/relatorios/receita-tipo', async (req, res) => {
+  const p = lerPeriodo(req.query);
+  const { chave: cliente } = chaveAnalise({ tipo: 'receber', agrupar: 'contato' });
+  const linhas = (await movimentos({ eid: req.eid, ...p }, `json_build_array(${TIPO_RECEITA_SQL}, ${cliente})::text`, SEM_TRANSFERENCIA))
+    .filter((r) => r.tipo === 'receber');
+  const tipos = new Map(TIPOS_RECEITA_RELATORIO.map((t) => [t, { tipo: t, valores: somaMeses(p.meses), total: 0, clientes: new Map() }]));
+  const totais = somaMeses(p.meses);
+  for (const r of linhas) {
+    const [t, nome] = JSON.parse(r.chave);
+    const g = tipos.get(t) ?? tipos.get('sem');
+    const v = Number(r.valor);
+    g.valores[r.mes] += v;
+    g.total += v;
+    totais[r.mes] += v;
+    if (!g.clientes.has(nome)) g.clientes.set(nome, { nome, valores: somaMeses(p.meses), total: 0 });
+    const c = g.clientes.get(nome);
+    c.valores[r.mes] += v;
+    c.total += v;
+  }
+  const total = Object.values(totais).reduce((s, v) => s + v, 0);
+  const av = (v) => (total ? Math.round((v / total) * 10000) / 100 : 0);
+  res.json({
+    de: p.de, ate: p.ate, regime: p.regime, meses: p.meses, totais, total,
+    tipos: [...tipos.values()].map((g) => ({
+      ...g, av: av(g.total),
+      clientes: [...g.clientes.values()].map((c) => ({ ...c, av: av(c.total) })).sort((a, b) => b.total - a.total),
+    })),
+  });
 });
 
 relatoriosRouter.get('/relatorios/analise', async (req, res) => {

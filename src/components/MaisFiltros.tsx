@@ -4,7 +4,7 @@ import { MoneyInput } from './ui';
 import { FiltroChecklist, type OpcaoFiltro } from './FiltroChecklist';
 
 /** Filtros de várias opções do extrato: cada um guarda os valores DESMARCADOS (vazio = mostra todos). */
-export const LISTAS = ['tipos', 'situacoes', 'contatos', 'origens', 'recorrencias', 'baixas', 'conciliacoes', 'centros', 'formas'] as const;
+export const LISTAS = ['tipos', 'situacoes', 'contatos', 'origens', 'recorrencias', 'baixas', 'conciliacoes', 'centros', 'formas', 'tipos_receita'] as const;
 export type Lista = (typeof LISTAS)[number];
 
 /** Filtros extras do extrato. Listas = desmarcados; faixas em centavos; datas 'YYYY-MM-DD' (vazio = não filtra). */
@@ -28,6 +28,10 @@ export const filtrosVazios = (): FiltrosExtras => ({
 
 export const OPCOES_TIPO: OpcaoFiltro[] = [
   { valor: 'receita', label: 'Receita' }, { valor: 'despesa', label: 'Despesa' }, { valor: 'transferencia', label: 'Transferência' },
+];
+// Só filtra receitas: despesas e transferências continuam aparecendo.
+export const OPCOES_TIPO_RECEITA: OpcaoFiltro[] = [
+  { valor: 'nova', label: 'Nova venda' }, { valor: 'recorrente', label: 'Recorrente' }, { valor: 'avulsa', label: 'Avulsa' }, { valor: 'sem', label: 'Sem tipo' },
 ];
 export const OPCOES_SITUACAO: OpcaoFiltro[] = [
   { valor: 'aberto', label: 'A vencer' }, { valor: 'vencido', label: 'Vencido' }, { valor: 'realizado', label: 'Pago / recebido' },
@@ -60,6 +64,7 @@ export function MaisFiltros({ valor, onChange }: { valor: FiltrosExtras; onChang
   const listas: { k: Lista; titulo: string; opcoes: OpcaoFiltro[]; todos?: string }[] = [
     { k: 'contatos', titulo: 'Cliente/Fornecedor', opcoes: [{ valor: '0', label: 'Sem cliente/fornecedor' }, ...(op?.contatos ?? []).map((c) => ({ valor: String(c.id), label: c.nome }))] },
     { k: 'origens', titulo: 'Origem do lançamento', opcoes: Object.entries(op?.origens ?? {}).map(([valor, label]) => ({ valor, label })), todos: 'Todas' },
+    { k: 'tipos_receita', titulo: 'Tipo de receita', opcoes: OPCOES_TIPO_RECEITA, todos: 'Todos' },
     { k: 'recorrencias', titulo: 'Recorrência', opcoes: [{ valor: 'com', label: 'Com recorrência / parcelas' }, { valor: 'sem', label: 'Sem recorrência' }], todos: 'Todas' },
     { k: 'baixas', titulo: 'Baixa', opcoes: [{ valor: 'manual', label: 'Baixa manual' }, { valor: 'conciliacao', label: 'Baixa pela conciliação' }, { valor: 'sem', label: 'Sem baixa (em aberto)' }], todos: 'Todas' },
     { k: 'conciliacoes', titulo: 'Situação da conciliação', opcoes: [{ valor: 'conciliado', label: 'Conciliado com o extrato do banco' }, { valor: 'nao_conciliado', label: 'Não conciliado' }], todos: 'Todas' },

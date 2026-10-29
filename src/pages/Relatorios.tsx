@@ -21,6 +21,7 @@ export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: s
   { id: 'pagamentos', nome: 'Análise de pagamentos', descricao: 'Pagamentos por categoria (ou por fornecedor) em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'clientes', nome: 'Receita por cliente', descricao: 'Quanto cada cliente pagou em cada mês e o peso de cada um no faturamento.', grupo: 'Análise financeira', segmento: 'servico' },
   { id: 'fornecedores', nome: 'Gastos por fornecedor', descricao: 'Quanto foi pago a cada fornecedor em cada mês.', grupo: 'Análise financeira', segmento: 'produto' },
+  { id: 'tipos', nome: 'Receita por tipo', descricao: 'Nova venda, recorrente e avulsa: quanto entrou de cada tipo e quem são os clientes, mês a mês.', grupo: 'Análise financeira' },
   { id: 'ltv', nome: 'LTV por cliente', descricao: 'Quanto cada cliente já pagou desde o começo, há quanto tempo é cliente e se continua ativo.', grupo: 'Análise financeira' },
   { id: 'centros', nome: 'Centro de custo', descricao: 'Despesas (ou receitas) por centro de custo em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'vencidos', nome: 'Contas vencidas e inadimplência', descricao: 'Valores em atraso por cliente ou fornecedor, separados por faixa de dias.', grupo: 'Análise financeira' },
@@ -263,13 +264,13 @@ export function Margem() {
 interface LancamentoAnalise { id: number; data: string; descricao: string; contato: string | null; categoria: string | null; conta: string | null; valor: number; juros: number; multa: number; desconto: number }
 
 /** Lista dos lançamentos por trás de uma linha da análise (e, se escolhido, de um mês). */
-function DetalheAnalise({ filtro, onClose }: { filtro: { tipo: TipoLancamento; agrupar: string; nome: string; mes?: string; de: string; ate: string; regime: Regime }; onClose: () => void }) {
+function DetalheAnalise({ filtro, titulo, onClose }: { filtro: { tipo: TipoLancamento; agrupar: string; nome: string; mes?: string; de: string; ate: string; regime: Regime; tipo_receita?: string }; titulo?: string; onClose: () => void }) {
   const { base } = useEmpresa();
   const { data, erro } = useApi<LancamentoAnalise[]>(`${base}/relatorios/analise/lancamentos${qs(filtro)}`);
   const total = data?.reduce((s, l) => s + l.valor, 0) ?? 0;
   const outraColuna = filtro.agrupar === 'categoria' ? (filtro.tipo === 'receber' ? 'Cliente' : 'Fornecedor') : 'Categoria';
   return (
-    <Modal titulo={`${filtro.nome}${filtro.mes ? ` · ${mesCurto(filtro.mes + '-01')}` : ''}`} onClose={onClose} largura={860}
+    <Modal titulo={`${titulo ?? filtro.nome}${filtro.mes ? ` · ${mesCurto(filtro.mes + '-01')}` : ''}`} onClose={onClose} largura={860}
       rodape={<button className="btn" onClick={onClose}>Fechar</button>}>
       <div className="muted small">
         {filtro.tipo === 'receber' ? 'Recebimentos' : 'Pagamentos'} {filtro.regime === 'caixa' ? 'pela data do pagamento' : 'pela data de vencimento'}
@@ -671,6 +672,127 @@ export function LtvClientes() {
       <p className="muted small" style={{ margin: 0 }}>
         Total recebido = tudo o que o cliente já pagou (menos transferências entre contas). LTV de margem = total × margem de contribuição da empresa.
         Ativo = pagou do mês passado para cá ou tem cobrança em aberto; perdido = desde o mês seguinte ao último pagamento. Clique no nome para ver os recebimentos.
+      </p>
+    </>
+  );
+}
+
+// ---------- Receita por tipo ----------
+
+type TipoReceitaRel = 'nova' | 'recorrente' | 'avulsa' | 'sem';
+const NOME_TIPO_REL: Record<TipoReceitaRel, string> = { nova: 'Nova venda', recorrente: 'Recorrente', avulsa: 'Avulsa', sem: 'Sem tipo' };
+interface LinhaTipo { nome: string; valores: Record<string, number>; total: number; av: number }
+interface RelatorioReceitaTipo {
+  de: string; ate: string; regime: Regime; meses: string[]; totais: Record<string, number>; total: number;
+  tipos: (Omit<LinhaTipo, 'nome'> & { tipo: TipoReceitaRel; clientes: LinhaTipo[] })[];
+}
+
+/** Receitas separadas em nova venda, recorrente e avulsa, com os clientes de cada tipo mês a mês. */
+export function ReceitaPorTipo() {
+  const { base, versao, empresa } = useEmpresa();
+  const [periodo, setPeriodo] = useState(ultimos12);
+  const [regime, setRegime] = useState<Regime>('caixa');
+  const [filtro, setFiltro] = useState<'todos' | TipoReceitaRel>('todos');
+  const [fechados, setFechados] = useState<Set<TipoReceitaRel>>(() => new Set(['sem']));
+  const [detalhe, setDetalhe] = useState<{ tipo: TipoReceitaRel; nome: string; mes?: string } | null>(null);
+  const { data, erro } = useApi<RelatorioReceitaTipo>(`${base}/relatorios/receita-tipo${qs({ de: periodo.de, ate: periodo.ate, regime, v: versao })}`);
+  const tipos = (data?.tipos ?? []).filter((t) => (filtro === 'todos' ? t.total !== 0 : t.tipo === filtro));
+  const alternar = (t: TipoReceitaRel) => setFechados((s) => { const n = new Set(s); if (n.has(t)) n.delete(t); else n.add(t); return n; });
+  const totalLista = tipos.reduce((s, t) => s + t.total, 0);
+
+  const exportar = () => data && exportarCSV(`Receita por tipo ${empresa?.nome} ${data.de} a ${data.ate}`, ['Tipo', 'Cliente', 'Total', 'AV%', ...data.meses.map((m) => mesCurto(m + '-01'))],
+    tipos.flatMap((t) => [
+      [NOME_TIPO_REL[t.tipo], `${t.clientes.length} cliente(s)`, t.total, pctCSV(t.av), ...data.meses.map((m) => t.valores[m])],
+      ...t.clientes.map((c) => [NOME_TIPO_REL[t.tipo], c.nome, c.total, pctCSV(c.av), ...data.meses.map((m) => c.valores[m])]),
+    ]),
+    [`Receita por tipo · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · ${regime === 'caixa' ? 'regime de caixa' : 'competência'}`]);
+
+  return (
+    <>
+      <Cabecalho titulo="Receita por tipo" descricao="Quanto entrou de nova venda, de recorrente e de avulsa, e quem são os clientes de cada tipo, mês a mês." />
+      <div className="card">
+        <BarraFiltros periodo={periodo} setPeriodo={setPeriodo} regime={regime} setRegime={setRegime} onExportar={exportar}
+          extra={(
+            <div className="tabs">
+              {(['todos', 'nova', 'recorrente', 'avulsa', 'sem'] as const).map((t) => (
+                <button key={t} className={'tab' + (filtro === t ? ' ativo' : '')} onClick={() => setFiltro(t)}>{t === 'todos' ? 'Todos' : NOME_TIPO_REL[t]}</button>
+              ))}
+            </div>
+          )} />
+        {erro && <div className="vazio alerta">{erro}</div>}
+        {data && (
+          <div className="cartoes-extrato rel-cartoes ltv-cartoes">
+            {data.tipos.map((t) => (
+              <button key={t.tipo} className={'cartao-extrato clicavel' + (filtro === t.tipo ? ' ativo' : '')} onClick={() => setFiltro(filtro === t.tipo ? 'todos' : t.tipo)} title="Clique para ver só este tipo">
+                <span className="kpi-label">{NOME_TIPO_REL[t.tipo]}</span>
+                <span className="cartao-valor num">{brl(t.total)}</span>
+                <span className="small muted">{t.av.toLocaleString('pt-BR')}% · {t.clientes.length} cliente(s)</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {data && tipos.length > 0 && (
+          <div className="table-wrap">
+            <table className="tabela-relatorio">
+              <thead>
+                <tr>
+                  <th className="col-fixa">Tipo / cliente</th>
+                  <th className="r">Total</th>
+                  <th className="r">AV%</th>
+                  {data.meses.map((m) => <th key={m} className="r">{mesCurto(m + '-01')}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {tipos.map((t) => (
+                  <Fragment key={t.tipo}>
+                    <tr className="linha-grupo">
+                      <td className="col-fixa">
+                        <button className="btn-texto" onClick={() => alternar(t.tipo)} aria-expanded={!fechados.has(t.tipo)}>
+                          <span className={'seta-expandir' + (fechados.has(t.tipo) ? '' : ' aberta')}>▸</span> {NOME_TIPO_REL[t.tipo]} <span className="muted small">({t.clientes.length})</span>
+                        </button>
+                      </td>
+                      <Valor v={t.total} forte />
+                      <Pct v={t.av} />
+                      {data.meses.map((m) => <Valor key={m} v={t.valores[m]} forte />)}
+                    </tr>
+                    {!fechados.has(t.tipo) && t.clientes.map((c) => (
+                      <tr key={t.tipo + c.nome} className="linha-categoria linha-clicavel">
+                        <td className="col-fixa" style={{ paddingLeft: 40 }}>
+                          <button className="link-botao" onClick={() => setDetalhe({ tipo: t.tipo, nome: c.nome })} title="Ver os recebimentos">{c.nome}</button>
+                        </td>
+                        <Valor v={c.total} />
+                        <Pct v={c.av} />
+                        {data.meses.map((m) => (
+                          <td key={m} className={'r num clicavel' + (c.valores[m] === 0 ? ' muted' : '')} data-soma={c.valores[m]} data-formato="moeda"
+                            onDoubleClick={() => c.valores[m] !== 0 && setDetalhe({ tipo: t.tipo, nome: c.nome, mes: m })} title={c.valores[m] ? 'Clique para somar · clique duas vezes para ver os recebimentos do mês' : undefined}>
+                            {c.valores[m] === 0 ? '–' : num(c.valores[m])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="col-fixa">Total</td>
+                  <Valor v={totalLista} forte />
+                  <Pct v={data.total ? Math.round((totalLista / data.total) * 10000) / 100 : 0} />
+                  {data.meses.map((m) => <Valor key={m} v={tipos.reduce((s, t) => s + t.valores[m], 0)} forte />)}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        {data && tipos.length === 0 && <div className="vazio">Nenhum recebimento {filtro === 'todos' ? '' : `de ${NOME_TIPO_REL[filtro].toLowerCase()} `}no período.</div>}
+      </div>
+      {detalhe && (
+        <DetalheAnalise filtro={{ tipo: 'receber', agrupar: 'contato', nome: detalhe.nome, mes: detalhe.mes, de: periodo.de, ate: periodo.ate, regime, tipo_receita: detalhe.tipo }}
+          titulo={`${detalhe.nome} · ${NOME_TIPO_REL[detalhe.tipo]}`} onClose={() => setDetalhe(null)} />
+      )}
+      <p className="muted small" style={{ margin: 0 }}>
+        O tipo vem de cada recebimento (Nova venda, Recorrente ou Avulsa), o mesmo usado no Forecast e no Dashboard; dá para mudar ao editar o lançamento.
+        Sem tipo = entradas que não são venda (aportes, resgates, reembolsos…). Transferências entre contas ficam de fora. Clique no cliente para ver os recebimentos (no valor de um mês: dois cliques).
       </p>
     </>
   );
