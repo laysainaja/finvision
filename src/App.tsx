@@ -15,7 +15,7 @@ import { Cadastros } from './pages/Cadastros';
 import { Gestao } from './pages/Gestao';
 import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
-import { Analise, DRE, LtvClientes, Margem, RELATORIOS, ReceitaPorTipo, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
+import { Analise, DRE, LtvClientes, RELATORIOS, ReceitaPorTipo, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 import { Contatos } from './pages/Contatos';
 import { Forecast } from './pages/Forecast';
 import { Dashboard } from './pages/Dashboard';
@@ -57,6 +57,8 @@ function montarMenu(segmento: 'servico' | 'produto'): Secao[] {
 }
 const ROTAS = ['painel', 'extrato', 'receber', 'pagar', 'fluxo', 'conciliacao', 'cadastros', 'contatos', 'gestao', 'relatorios', ...RELATORIOS.map((r) => `relatorios/${r.id}`)];
 type Rota = string;
+// Relatórios que repetiam outro (links antigos levam ao equivalente).
+const ANTIGAS: Record<string, string> = { 'relatorios/clientes': 'relatorios/recebimentos', 'relatorios/fornecedores': 'relatorios/pagamentos', 'relatorios/margem': 'relatorios/dre' };
 
 /** Menu lateral inteiro fechado ou aberto pelo botão ☰ (lembrado no navegador). */
 function useMenuLateral() {
@@ -110,7 +112,11 @@ function mostraGestao(empresas: Empresa[]) {
 
 function useRota(): Rota {
   const ler = () => {
-    const r = location.hash.replace('#/', '').split('?')[0];
+    let r = location.hash.replace('#/', '').split('?')[0];
+    if (ANTIGAS[r]) {
+      r = ANTIGAS[r];
+      history.replaceState(null, '', `#/${r}`);
+    }
     return ROTAS.includes(r) ? r : 'painel';
   };
   const [rota, setRota] = useState(ler);
@@ -286,7 +292,6 @@ function Layout() {
           {rotaValida === 'relatorios/forecast' && <Forecast />}
                     {(rotaValida === 'relatorios' || rotaValida === 'relatorios/mensal') && <RelatorioMensal />}
           {rotaValida === 'relatorios/dre' && <DRE />}
-          {rotaValida === 'relatorios/margem' && <Margem />}
           {rotaValida === 'relatorios/vencidos' && <Vencidos />}
           {rotaValida === 'relatorios/recebimentos' && (
             <Analise key="rec" tipo="receber" agruparInicial="categoria" titulo="Análise de recebimentos" descricao="Quanto entrou em cada categoria (ou de cada cliente), mês a mês, e o peso de cada uma no total." />
@@ -294,16 +299,10 @@ function Layout() {
           {rotaValida === 'relatorios/pagamentos' && (
             <Analise key="pag" tipo="pagar" agruparInicial="categoria" titulo="Análise de pagamentos" descricao="Quanto saiu em cada categoria (ou para cada fornecedor), mês a mês, e o peso de cada uma no total." />
           )}
-          {rotaValida === 'relatorios/clientes' && (
-            <Analise key="cli" tipo="receber" agruparInicial="contato" fixo titulo="Receita por cliente" descricao="Quanto cada cliente pagou, mês a mês, e a participação de cada um no faturamento." />
-          )}
           {rotaValida === 'relatorios/ltv' && <LtvClientes />}
           {rotaValida === 'relatorios/tipos' && <ReceitaPorTipo />}
           {rotaValida === 'relatorios/centros' && (
             <Analise key="centros" tipo="pagar" agruparInicial="centro" fixo alternarTipo titulo="Centro de custo" descricao="Quanto saiu (ou entrou) em cada centro de custo, mês a mês, e o peso de cada um no total. Lançamento sem centro de custo aparece em “Sem centro de custo”." />
-          )}
-          {rotaValida === 'relatorios/fornecedores' && (
-            <Analise key="forn" tipo="pagar" agruparInicial="contato" fixo titulo="Gastos por fornecedor" descricao="Quanto foi pago a cada fornecedor, mês a mês." />
           )}
         </main>
       </div>

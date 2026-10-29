@@ -16,11 +16,8 @@ export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: s
   { id: 'mensal', nome: 'Relatório semanal', descricao: 'O que foi realizado no período: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
   { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
-  { id: 'margem', nome: 'Margem bruta e CMV', descricao: 'Quanto sobra das vendas depois do custo das mercadorias, mês a mês.', grupo: 'Resultado', segmento: 'produto' },
   { id: 'recebimentos', nome: 'Análise de recebimentos', descricao: 'Recebimentos por categoria (ou por cliente) em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'pagamentos', nome: 'Análise de pagamentos', descricao: 'Pagamentos por categoria (ou por fornecedor) em cada mês, com participação no total.', grupo: 'Análise financeira' },
-  { id: 'clientes', nome: 'Receita por cliente', descricao: 'Quanto cada cliente pagou em cada mês e o peso de cada um no faturamento.', grupo: 'Análise financeira', segmento: 'servico' },
-  { id: 'fornecedores', nome: 'Gastos por fornecedor', descricao: 'Quanto foi pago a cada fornecedor em cada mês.', grupo: 'Análise financeira', segmento: 'produto' },
   { id: 'tipos', nome: 'Receita por tipo', descricao: 'Nova venda, recorrente e avulsa: quanto entrou de cada tipo e quem são os clientes, mês a mês.', grupo: 'Análise financeira' },
   { id: 'ltv', nome: 'LTV por cliente', descricao: 'Quanto cada cliente já pagou desde o começo, há quanto tempo é cliente e se continua ativo.', grupo: 'Análise financeira' },
   { id: 'centros', nome: 'Centro de custo', descricao: 'Despesas (ou receitas) por centro de custo em cada mês, com participação no total.', grupo: 'Análise financeira' },
@@ -192,68 +189,6 @@ export function DRE() {
       <p className="muted small" style={{ margin: 0 }}>
         Cada categoria entra numa linha da DRE conforme a classificação em <a href="#/cadastros">Cadastros → Categorias</a>. AV% é o peso de cada linha sobre a receita bruta.
         {regime === 'caixa' ? ' Regime de caixa: só o que já foi pago ou recebido, na data do pagamento.' : ' Competência: tudo, pela data de vencimento, inclusive o que está em aberto.'}
-      </p>
-    </>
-  );
-}
-
-// ---------- Margem bruta e CMV (produto) ----------
-
-export function Margem() {
-  const [periodo, setPeriodo] = useState(ultimos12);
-  const [regime, setRegime] = useState<Regime>('competencia');
-  const { data, erro } = useDRE(periodo, regime);
-  const { empresa } = useEmpresa();
-  const linha = (id: string) => data?.linhas.find((l) => l.id === id);
-  const rl = linha('receita_liquida'), custo = linha('custo'), lb = linha('lucro_bruto');
-  const margem = (m?: string) => {
-    const r = m ? rl?.valores[m] ?? 0 : rl?.total ?? 0;
-    const b = m ? lb?.valores[m] ?? 0 : lb?.total ?? 0;
-    return r ? Math.round((b / r) * 1000) / 10 : null;
-  };
-  const exportar = () => data && exportarCSV(`Margem bruta ${empresa?.nome} ${data.de} a ${data.ate}`, ['Mês', 'Receita líquida', 'Custos (CMV)', 'Lucro bruto', 'Margem bruta %'],
-    data.meses.map((m) => [mesCurto(m + '-01'), rl!.valores[m], custo!.valores[m], lb!.valores[m], pctCSV(margem(m))]));
-  const maxReceita = Math.max(1, ...(data?.meses.map((m) => rl?.valores[m] ?? 0) ?? [1]));
-
-  return (
-    <>
-      <Cabecalho titulo="Margem bruta e CMV" descricao="Receita líquida menos o custo das mercadorias vendidas (CMV): quanto sobra para pagar as despesas e gerar lucro." />
-      <div className="grid grid-4">
-        <div className="card kpi"><div className="kpi-label">Receita líquida</div><div className="kpi-valor">{brl(rl?.total ?? 0)}</div></div>
-        <div className="card kpi"><div className="kpi-label">Custos (CMV)</div><div className="kpi-valor saida">{brl(custo?.total ?? 0)}</div></div>
-        <div className="card kpi"><div className="kpi-label">Lucro bruto</div><div className={'kpi-valor ' + ((lb?.total ?? 0) < 0 ? 'alerta' : '')}>{brl(lb?.total ?? 0)}</div></div>
-        <div className="card kpi"><div className="kpi-label">Margem bruta</div><div className="kpi-valor">{margem() === null ? '–' : `${margem()!.toLocaleString('pt-BR')}%`}</div></div>
-      </div>
-      <div className="card">
-        <BarraFiltros periodo={periodo} setPeriodo={setPeriodo} regime={regime} setRegime={setRegime} onExportar={exportar} />
-        {erro && <div className="vazio alerta">{erro}</div>}
-        {data && rl && custo && lb && (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Mês</th><th className="r">Receita líquida</th><th className="r">Custos (CMV)</th><th className="r">Lucro bruto</th><th className="r">Margem bruta</th><th style={{ width: '28%' }}>Receita × lucro bruto</th></tr></thead>
-              <tbody>
-                {data.meses.map((m) => (
-                  <tr key={m}>
-                    <td>{mesCurto(m + '-01')}</td>
-                    <Valor v={rl.valores[m]} />
-                    <Valor v={custo.valores[m]} />
-                    <Valor v={lb.valores[m]} forte />
-                    <td className="r num">{margem(m) === null ? '–' : `${margem(m)!.toLocaleString('pt-BR')}%`}</td>
-                    <td>
-                      <div className="barra-dupla" title={`Receita ${brl(rl.valores[m])} · Lucro bruto ${brl(lb.valores[m])}`}>
-                        <div style={{ width: `${(Math.max(0, rl.valores[m]) / maxReceita) * 100}%`, background: 'var(--serie-entrada)', opacity: 0.35 }} />
-                        <div style={{ width: `${(Math.max(0, lb.valores[m]) / maxReceita) * 100}%`, background: 'var(--serie-entrada)' }} />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      <p className="muted small" style={{ margin: 0 }}>
-        CMV = categorias classificadas como <b>Custos</b> (ex.: Compra de mercadorias, Fretes, Embalagens). Ajuste em Cadastros → Categorias. Competência é o mais indicado para margem.
       </p>
     </>
   );
