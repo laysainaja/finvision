@@ -131,9 +131,9 @@ export function FluxoCaixa() {
           </div>
 
           <div className="grid grid-main">
-            <div className="card">
+            <div className="card card-coluna">
               <div className="card-header"><h2>Detalhamento</h2></div>
-              <div className="table-wrap" style={{ maxHeight: 520 }}>
+              <div className="table-wrap preenche">
                 <table>
                   <thead>
                     <tr>
