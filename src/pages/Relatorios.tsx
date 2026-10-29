@@ -487,7 +487,12 @@ export function Vencidos() {
 
 // ---------- Relatório do mês (realizado) ----------
 
-interface RelMensal { de: string; ate: string; receitas: number; despesas: number; total: number; n_receitas: number; n_despesas: number; clientes: { nome: string; total: number; n: number }[]; pagamentos: { nome: string; total: number; n: number }[] }
+interface RelMensal {
+  de: string; ate: string; receitas: number; despesas: number; total: number; n_receitas: number; n_despesas: number;
+  clientes: { nome: string; total: number; n: number }[]; pagamentos: { nome: string; total: number; n: number }[];
+  referencia: string; caixa: number; contas: { nome: string; saldo: number }[];
+  inadimplencia: number; inadimplentes: { nome: string; total: number; n: number; maior_atraso: number }[];
+}
 
 /** Tabela com barra e participação no total (receita por cliente / pagamentos por categoria). */
 function TabelaParticipacao({ titulo, coluna, itens, total, cor }: { titulo: string; coluna: string; itens: RelMensal['clientes']; total: number; cor: string }) {
@@ -524,7 +529,10 @@ export function RelatorioMensal() {
   const exportar = () => data && exportarCSV(`Relatório semanal ${empresa?.nome} ${data.de} a ${data.ate}`, ['', 'Lançamentos', 'Valor (R$)'], [
     ['Receitas realizadas', data.n_receitas, data.receitas], ['Despesas realizadas', data.n_despesas, data.despesas], ['Total do período', null, data.total], [],
     ['RECEITA POR CLIENTE'], ...data.clientes.map((c) => [c.nome, c.n, c.total]), [],
-    ['ANÁLISE DE PAGAMENTOS (por categoria)'], ...data.pagamentos.map((c) => [c.nome, c.n, c.total]),
+    ['ANÁLISE DE PAGAMENTOS (por categoria)'], ...data.pagamentos.map((c) => [c.nome, c.n, c.total]), [],
+    [`SALDO EM CAIXA em ${dataBR(data.referencia)}`, null, data.caixa], ...data.contas.map((c) => [c.nome, null, c.saldo]), [],
+    [`INADIMPLÊNCIA em ${dataBR(data.referencia)} (cobranças vencidas)`, null, data.inadimplencia],
+    ...data.inadimplentes.map((c) => [`${c.nome} (maior atraso: ${c.maior_atraso} dias)`, c.n, c.total]),
   ], [`Relatório semanal · ${empresa?.nome ?? ''}`, `Período: ${dataBR(data.de)} a ${dataBR(data.ate)} · o que foi pago e recebido`]);
 
   // PDF pelo próprio navegador: a janela de impressão já vem pronta (sem menu e botões), é só escolher "Salvar como PDF".
@@ -547,10 +555,12 @@ export function RelatorioMensal() {
         </div>
         {erro && <div className="vazio alerta">{erro}</div>}
         {data && (
-          <div className="cartoes-extrato rel-cartoes">
+          <div className="cartoes-extrato rel-cartoes cartoes-5">
             <div className="cartao-extrato"><span className="kpi-label">Receitas realizadas (R$)</span><span className="cartao-valor num entrada">{brl(data.receitas)}</span><span className="small muted">{data.n_receitas} recebimento(s)</span></div>
             <div className="cartao-extrato"><span className="kpi-label">Despesas realizadas (R$)</span><span className="cartao-valor num saida">{brl(data.despesas)}</span><span className="small muted">{data.n_despesas} pagamento(s)</span></div>
             <div className="cartao-extrato total"><span className="kpi-label">Total do período (R$)</span><span className={'cartao-valor num ' + (data.total < 0 ? 'alerta' : '')}>{brl(data.total)}</span><span className="small muted">receitas − despesas</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">Saldo em caixa (R$)</span><span className={'cartao-valor num ' + (data.caixa < 0 ? 'alerta' : '')}>{brl(data.caixa)}</span><span className="small muted">em {dataBR(data.referencia)} · {data.contas.length} conta(s)</span></div>
+            <div className="cartao-extrato"><span className="kpi-label">Inadimplência (R$)</span><span className={'cartao-valor num ' + (data.inadimplencia ? 'alerta' : '')}>{brl(data.inadimplencia)}</span><span className="small muted">vencido em {dataBR(data.referencia)} · {data.inadimplentes.length} cliente(s)</span></div>
           </div>
         )}
       </div>
@@ -558,9 +568,49 @@ export function RelatorioMensal() {
         <>
           <TabelaParticipacao titulo="Receita por cliente" coluna="Cliente" itens={data.clientes} total={data.receitas} cor="var(--serie-entrada)" />
           <TabelaParticipacao titulo="Análise de pagamentos" coluna="Categoria" itens={data.pagamentos} total={data.despesas} cor="var(--serie-saida)" />
+          <div className="grid grid-2">
+            <div className="card">
+              <div className="card-header"><h2>Saldo em caixa</h2><span className="muted small">em {dataBR(data.referencia)} · {brl(data.caixa)}</span></div>
+              {data.contas.length === 0 ? <div className="vazio">Nenhuma conta bancária cadastrada.</div> : (
+                <div className="table-wrap">
+                  <table className="tabela-relatorio">
+                    <thead><tr><th className="col-fixa">Conta</th><th className="r">Saldo</th></tr></thead>
+                    <tbody>
+                      {data.contas.map((c) => (
+                        <tr key={c.nome}><td className="col-fixa">{c.nome}</td><td className={'r num ' + (c.saldo < 0 ? 'alerta' : '')} data-soma={c.saldo} data-formato="moeda"><b>{num(c.saldo)}</b></td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="card">
+              <div className="card-header"><h2>Inadimplência</h2><span className="muted small">cobranças vencidas em {dataBR(data.referencia)} · {brl(data.inadimplencia)}</span></div>
+              {data.inadimplentes.length === 0 ? <div className="vazio">Nenhuma cobrança vencida. 🎉</div> : (
+                <div className="table-wrap">
+                  <table className="tabela-relatorio">
+                    <thead><tr><th className="col-fixa">Cliente</th><th className="r">Cobranças</th><th className="r">Maior atraso</th><th className="r">Valor</th></tr></thead>
+                    <tbody>
+                      {data.inadimplentes.map((c) => (
+                        <tr key={c.nome}>
+                          <td className="col-fixa">{c.nome}</td>
+                          <td className="r num muted">{c.n}</td>
+                          <td className="r num muted">{c.maior_atraso} dia(s)</td>
+                          <td className="r num" data-soma={c.total} data-formato="moeda"><b>{num(c.total)}</b></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
-      <p className="muted small" style={{ margin: 0 }}>Conta só o que já foi pago ou recebido, na data do pagamento. Toda despesa entra (inclusive empréstimos e reserva); transferências entre as contas da própria empresa ficam de fora, porque se anulam.</p>
+      <p className="muted small" style={{ margin: 0 }}>
+        Conta só o que já foi pago ou recebido, na data do pagamento. Toda despesa entra (inclusive empréstimos e reserva); transferências entre as contas da própria empresa ficam de fora, porque se anulam.
+        Saldo em caixa e inadimplência são do fim do período (ou de hoje, se o período ainda não acabou): inadimplência = recebimentos vencidos que ainda não tinham sido pagos nessa data.
+      </p>
     </>
   );
 }

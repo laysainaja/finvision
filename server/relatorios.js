@@ -219,7 +219,10 @@ relatoriosRouter.get('/relatorios/mensal', async (req, res) => {
   const p = { eid: req.eid, de: req.query.de, ate: req.query.ate };
   const base = `FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
     WHERE l.empresa_id = :eid AND l.data_pagamento BETWEEN :de AND :ate AND l.transferencia_id IS NULL`;
-  const [totais, clientes, pagamentos] = await Promise.all([
+  // Caixa e inadimplência na data de referência: o fim do período (ou hoje, se o período ainda não acabou).
+  const h = hoje();
+  const ref = p.ate < h ? p.ate : h;
+  const [totais, clientes, pagamentos, contas, vencidos] = await Promise.all([
     get(`SELECT COALESCE(SUM(CASE WHEN l.tipo = 'receber' THEN l.valor_pago END), 0)::bigint AS receitas,
            COALESCE(SUM(CASE WHEN l.tipo = 'pagar' THEN l.valor_pago END), 0)::bigint AS despesas,
            COUNT(*) FILTER (WHERE l.tipo = 'receber')::int AS n_receitas, COUNT(*) FILTER (WHERE l.tipo = 'pagar')::int AS n_despesas ${base}`, p),
@@ -227,8 +230,29 @@ relatoriosRouter.get('/relatorios/mensal', async (req, res) => {
          ${base} AND l.tipo = 'receber' GROUP BY 1 ORDER BY 2 DESC`, p),
     all(`SELECT COALESCE(c.nome, 'Sem categoria') AS nome, SUM(l.valor_pago)::bigint AS total, COUNT(*)::int AS n
          ${base} AND l.tipo = 'pagar' GROUP BY 1 ORDER BY 2 DESC`, p),
+    all(`SELECT cb.nome, (cb.saldo_inicial + COALESCE((
+           SELECT SUM(CASE WHEN l.tipo = 'receber' THEN l.valor_pago ELSE -l.valor_pago END) FROM lancamentos l
+           WHERE l.conta_bancaria_id = cb.id AND l.data_pagamento BETWEEN cb.data_saldo_inicial AND :ref), 0))::bigint AS saldo
+         FROM contas_bancarias cb WHERE cb.empresa_id = :eid AND cb.ativa = 1 ORDER BY cb.nome`, { eid: req.eid, ref }),
+    // Recebimentos vencidos até a referência que ainda não tinham sido pagos nela (pagos depois também contam).
+    all(`SELECT COALESCE(ct.nome, NULLIF(trim(l.contato), ''), 'Sem cliente informado') AS nome, l.vencimento, l.valor
+         FROM lancamentos l LEFT JOIN contatos ct ON ct.id = l.contato_id
+         WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.vencimento < :ref AND (l.data_pagamento IS NULL OR l.data_pagamento > :ref)
+         ORDER BY l.vencimento`, { eid: req.eid, ref }),
   ]);
-  res.json({ de: p.de, ate: p.ate, ...totais, total: totais.receitas - totais.despesas, clientes, pagamentos });
+  const inad = new Map();
+  for (const l of vencidos) {
+    if (!inad.has(l.nome)) inad.set(l.nome, { nome: l.nome, total: 0, n: 0, maior_atraso: 0 });
+    const c = inad.get(l.nome);
+    c.total += l.valor;
+    c.n++;
+    c.maior_atraso = Math.max(c.maior_atraso, diffDays(ref, l.vencimento));
+  }
+  res.json({
+    de: p.de, ate: p.ate, ...totais, total: totais.receitas - totais.despesas, clientes, pagamentos,
+    referencia: ref, caixa: contas.reduce((s, c) => s + c.saldo, 0), contas,
+    inadimplencia: vencidos.reduce((s, l) => s + l.valor, 0), inadimplentes: [...inad.values()].sort((a, b) => b.total - a.total),
+  });
 });
 
 relatoriosRouter.get('/relatorios/vencidos', async (req, res) => {
