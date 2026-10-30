@@ -4,7 +4,7 @@
 // - PJ e sócio (pró-labore): não geram provisão (aparecem na lista para conferência).
 // Base = média mensal do que foi pago à pessoa nos últimos 12 meses (salário + comissões, como manda a lei para 13º e
 // férias), pelo cadastro de cliente/fornecedor ligado; sem pagamentos, vale o salário base informado. O primeiro salário
-// (proporcional aos dias do mês da admissão, pago até 40 dias depois dela) fica fora da média.
+// (proporcional aos dias do mês da admissão, pago até o dia 10 do mês seguinte) fica fora da média.
 // Mês conta para 13º e férias quando a pessoa trabalhou 15 dias ou mais nele. INSS patronal não entra: no Simples
 // Nacional (anexos III e V) ele já está dentro do DAS.
 import express from 'express';
@@ -109,7 +109,8 @@ folhaRouter.get('/relatorios/provisao-folha', async (req, res) => {
   const colaboradores = [];
   for (const c of lista) {
     // Média do que foi pago (salário + comissões) nos últimos 12 meses, pelos meses em que houve pagamento.
-    const inicioMedia = c.admissao && addDays(c.admissao, 40) > desde ? addDays(c.admissao, 40) : desde;
+    const primeiro = c.admissao ? addDays(addMonths(c.admissao.slice(0, 8) + '01', 1), 9) : null; // dia 10 do mês seguinte
+    const inicioMedia = primeiro && primeiro > desde ? primeiro : desde;
     const pago = c.contato_id ? await get(
       `SELECT COALESCE(SUM(l.valor_pago), 0)::bigint AS total, COUNT(DISTINCT to_char(l.data_pagamento, 'YYYY-MM'))::int AS meses
        FROM lancamentos l LEFT JOIN categorias cat ON cat.id = l.categoria_id
