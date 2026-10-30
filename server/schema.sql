@@ -210,6 +210,24 @@ create table if not exists forecast_ajustes (
   primary key (empresa_id, mes, campo)
 );
 
+-- Integração com o Asaas (só leitura): cobranças viram contas a receber (com baixa quando pagas) e as movimentações
+-- da conta caem na conciliação. A chave de API de cada conta fica no Vault ('asaas_conta_<id>'), nunca nesta tabela.
+create table if not exists asaas_contas (
+  conta_bancaria_id bigint primary key references contas_bancarias(id) on delete cascade,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  categoria_receita_id bigint references categorias(id) on delete set null,
+  categoria_tarifa_id bigint references categorias(id) on delete set null,
+  desde date not null, -- busca movimentações e cobranças pagas a partir desta data
+  ativo boolean not null default true,
+  webhook_token uuid not null default gen_random_uuid(), -- o Asaas manda no cabeçalho asaas-access-token
+  sincronizado_em timestamptz,
+  ultimo_erro text
+);
+alter table lancamentos add column if not exists asaas_id text; -- id da cobrança no Asaas ('tarifa:<id>' para a taxa)
+create unique index if not exists ux_lancamentos_asaas on lancamentos (empresa_id, asaas_id) where asaas_id is not null;
+alter table lancamentos drop constraint if exists lancamentos_origem_baixa_check;
+alter table lancamentos add constraint lancamentos_origem_baixa_check check (origem_baixa in ('manual', 'conciliacao', 'asaas'));
+
 -- Segurança: o Supabase expõe o schema "public" pela API REST usando a chave pública (anon),
 -- que fica visível no navegador. Com RLS ligado e nenhuma policy, essa via fica totalmente bloqueada.
 -- Todo acesso passa pelo nosso servidor, que verifica o login e a empresa antes de cada consulta.
@@ -224,3 +242,4 @@ alter table escritorios enable row level security;
 alter table escritorio_membros enable row level security;
 alter table contatos enable row level security;
 alter table forecast_ajustes enable row level security;
+alter table asaas_contas enable row level security;

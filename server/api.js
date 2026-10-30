@@ -13,6 +13,7 @@ import { relatoriosRouter } from './relatorios.js';
 import { contatosRouter, resolverContato } from './contatos.js';
 import { forecastRouter } from './forecast.js';
 import { dashboardRouter } from './dashboard.js';
+import { asaasRouter, webhookAsaas } from './asaas.js';
 
 export const api = express.Router();
 
@@ -38,6 +39,8 @@ api.get('/saude', async (req, res) => {
 });
 // Pública: a tela de login mostra de qual empresa é o convite antes de a pessoa entrar.
 api.get('/convites/:token', infoConvite);
+// Pública: avisos do Asaas (cobrança criada, paga, apagada...), protegidos pelo token da conta.
+api.post('/integracoes/asaas/webhook/:conta', webhookAsaas);
 
 api.use(autenticar);
 api.use('/convites', conviteRouter);
@@ -711,6 +714,7 @@ e.use(relatoriosRouter);
 e.use(contatosRouter);
 e.use(forecastRouter);
 e.use(dashboardRouter);
+e.use(asaasRouter);
 
 // ---------- Erros ----------
 

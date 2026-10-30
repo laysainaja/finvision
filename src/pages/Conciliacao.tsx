@@ -6,6 +6,7 @@ import { lerExtrato, type ItemExtrato } from '../lib/extrato';
 import type { Contato, ExtratoItem, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
 import { ConciliacaoDias } from '../components/ConciliacaoDias';
+import { AsaasConta } from '../components/AsaasConta';
 
 type Aba = 'pendente' | 'conciliado' | 'ignorado' | 'todos';
 const POR_VEZ = 15; // linhas por vez (cada uma busca as próprias sugestões)
@@ -113,6 +114,8 @@ export function Conciliacao() {
           </button>
         ))}
       </div>
+
+      {contaId !== '' && <AsaasConta key={contaId} contaId={contaId} contaNome={conta?.nome ?? ''} />}
 
       <div
         className={'drop' + (arrastando ? ' ativo' : '')}

@@ -331,6 +331,13 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
   border: 2px dashed var(--border); border-radius: 12px; padding: 22px; text-align: center; color: var(--text-2); cursor: pointer;
 }
 .drop.ativo, .drop:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+/* Faixa do Asaas na conciliação (ligar a conta, última atualização, atualizar agora). */
+.asaas-faixa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
+.asaas-faixa > span:first-child { margin-right: auto; }
+.asaas-faixa.ligada { border-style: solid; }
+.asaas-faixa.erro { border-color: var(--alerta, #c0392b); }
+.asaas-webhook { display: grid; gap: 6px; padding: 12px; border-radius: var(--radius); background: var(--surface-2); margin-top: 8px; }
+.asaas-webhook code { word-break: break-all; }
 
 .login-wrap { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; background: linear-gradient(160deg, var(--primary-soft), var(--bg) 55%); }
 .login-card { width: 100%; max-width: 400px; padding: 28px; display: flex; flex-direction: column; gap: 16px; }
