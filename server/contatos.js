@@ -5,6 +5,7 @@ import { check, optText, idParam, chaveNome } from './util.js';
 export const contatosRouter = express.Router({ mergeParams: true });
 
 const TIPOS = ['cliente', 'fornecedor', 'ambos'];
+const TIPOS_PIX = ['CPF', 'CNPJ', 'EMAIL', 'PHONE', 'EVP'];
 
 /**
  * Acha o contato pelo nome (ignorando maiúsculas, acentos e espaços) ou cadastra um novo.
@@ -53,8 +54,12 @@ function lerContato(body) {
     email: optText(body.email),
     telefone: optText(body.telefone),
     observacao: optText(body.observacao),
+    chave_pix: optText(body.chave_pix),
+    tipo_chave_pix: TIPOS_PIX.includes(body.tipo_chave_pix) ? body.tipo_chave_pix : null,
   };
   check(c.nome, 'Informe o nome.');
+  if (!c.chave_pix) c.tipo_chave_pix = null;
+  check(!c.chave_pix || c.tipo_chave_pix, 'Escolha o tipo da chave Pix.');
   return c;
 }
 
@@ -64,8 +69,8 @@ contatosRouter.post('/contatos', async (req, res) => {
   check(!(await get('SELECT 1 FROM contatos WHERE empresa_id = :eid AND chave = :chave', { eid: req.eid, chave })), `Já existe um cadastro chamado "${c.nome}".`, 409);
   res.status(201).json(
     await get(
-      `INSERT INTO contatos (empresa_id, nome, chave, tipo, documento, email, telefone, observacao)
-       VALUES (:eid, :nome, :chave, :tipo, :documento, :email, :telefone, :observacao) RETURNING *`,
+      `INSERT INTO contatos (empresa_id, nome, chave, tipo, documento, email, telefone, observacao, chave_pix, tipo_chave_pix)
+       VALUES (:eid, :nome, :chave, :tipo, :documento, :email, :telefone, :observacao, :chave_pix, :tipo_chave_pix) RETURNING *`,
       { ...c, chave, eid: req.eid },
     ),
   );
@@ -79,7 +84,8 @@ contatosRouter.put('/contatos/:id', async (req, res) => {
   check(!outro, `Já existe outro cadastro chamado "${c.nome}". Use "Juntar" para unificar os dois.`, 409);
   const r = await transaction(async () => {
     const atualizado = await get(
-      `UPDATE contatos SET nome = :nome, chave = :chave, tipo = :tipo, documento = :documento, email = :email, telefone = :telefone, observacao = :observacao
+      `UPDATE contatos SET nome = :nome, chave = :chave, tipo = :tipo, documento = :documento, email = :email, telefone = :telefone, observacao = :observacao,
+         chave_pix = :chave_pix, tipo_chave_pix = :tipo_chave_pix
        WHERE id = :id AND empresa_id = :eid RETURNING *`,
       { ...c, chave, id, eid: req.eid },
     );

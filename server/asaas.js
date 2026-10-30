@@ -1,7 +1,10 @@
-// Integração com o Asaas, só leitura (nenhum dinheiro é movido daqui):
+// Integração com o Asaas. Leitura:
 // - cobranças viram contas a receber; quando pagas, recebem baixa sozinhas e a taxa do Asaas vira uma despesa paga;
 // - as movimentações da conta entram no extrato da conciliação (e as que já têm lançamento saem conciliadas).
 // Roda ao abrir a conciliação, no botão "Atualizar agora" e pelo webhook do Asaas (cobrança criada, paga, apagada...).
+// Pagamentos (só nas contas em que o dono ligou): a conta a pagar é preparada, a pessoa confere e dá o OK, e só então a
+// transferência Pix sobe ao Asaas, sempre agendada, para ficar esperando a aprovação com token lá. Quando o Asaas
+// confirma, o lançamento recebe baixa. O FinVision nunca aprova uma transferência.
 // A chave de API de cada conta fica no Vault do Supabase ('asaas_conta_<id>'); só o dono cadastra e ninguém a lê de volta.
 import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
@@ -25,14 +28,20 @@ function urlBase(chave) {
   return process.env.ASAAS_URL ?? (chave.includes('_hmlg_') ? 'https://api-sandbox.asaas.com/v3' : 'https://api.asaas.com/v3');
 }
 
-async function asaas(chave, caminho, params = {}) {
+async function asaas(chave, caminho, params = {}, { method = 'GET', body } = {}) {
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null)).toString();
   const r = await fetch(`${urlBase(chave)}${caminho}${qs ? '?' + qs : ''}`, {
-    headers: { access_token: chave, 'User-Agent': 'FinVision/1.0', accept: 'application/json' },
+    method,
+    headers: { access_token: chave, 'User-Agent': 'FinVision/1.0', accept: 'application/json', ...(body && { 'Content-Type': 'application/json' }) },
+    body: body && JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
   if (r.status === 401) throw new Error('O Asaas recusou a chave de API (401). Confira a chave cadastrada.');
-  if (!r.ok) throw new Error(`O Asaas respondeu ${r.status} em ${caminho}.`);
+  if (!r.ok) {
+    // O Asaas explica o erro em errors[].description (ex.: chave Pix inválida, saldo insuficiente).
+    const motivo = await r.json().then((j) => j?.errors?.map((e) => e.description).filter(Boolean).join('; ')).catch(() => null);
+    throw new Error(motivo ? `Asaas: ${motivo}` : `O Asaas respondeu ${r.status} em ${caminho}.`);
+  }
   return r.json();
 }
 
@@ -180,6 +189,38 @@ async function aplicarTarifa(cfg, p, data) {
   await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid, id });
 }
 
+// ---------- Transferências (pagamentos) ----------
+
+/** Atualiza o pagamento pelo status da transferência no Asaas; concluída = baixa no lançamento (e a taxa, se houver). */
+async function aplicarTransferencia(cfg, t) {
+  const pg = await get('SELECT * FROM asaas_pagamentos WHERE transfer_id = :t AND conta_bancaria_id = :c', { t: t.id, c: cfg.conta_bancaria_id });
+  if (!pg || pg.status === 'pago') return null;
+  const status = t.status === 'DONE' ? 'pago' : t.status === 'FAILED' ? 'falhou' : t.status === 'CANCELLED' ? 'cancelado' : 'enviado';
+  const erro = t.status === 'FAILED' ? (t.failReason ?? 'A transferência falhou no Asaas.') : t.status === 'BLOCKED' ? 'Transferência bloqueada no Asaas.' : null;
+  await all(
+    'UPDATE asaas_pagamentos SET status = :st, status_asaas = :sa, autorizado = COALESCE(:au, autorizado), erro = :erro WHERE lancamento_id = :l',
+    { st: status, sa: t.status ?? null, au: typeof t.authorized === 'boolean' ? t.authorized : null, erro, l: pg.lancamento_id },
+  );
+  if (status !== 'pago') return status === pg.status ? null : status;
+  const data = t.effectiveDate ?? t.scheduleDate ?? hoje();
+  await all(
+    `UPDATE lancamentos SET data_pagamento = :d, valor_pago = :v, origem_baixa = 'asaas', conta_bancaria_id = :c
+     WHERE id = :l AND data_pagamento IS NULL`,
+    { d: data, v: t.value !== undefined ? centavos(t.value) : pg.valor, c: cfg.conta_bancaria_id, l: pg.lancamento_id },
+  );
+  const taxa = centavos(t.transferFee ?? 0);
+  const aid = `tarifa-transf:${t.id}`;
+  if (taxa > 0 && !(await get('SELECT 1 FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid: cfg.empresa_id, aid }))) {
+    const id = await inserirLancamento({
+      empresa_id: cfg.empresa_id, tipo: 'pagar', descricao: 'TARIFA ASAAS', contato: null,
+      categoria_id: cfg.categoria_tarifa_id, conta_bancaria_id: cfg.conta_bancaria_id, valor: taxa, vencimento: data, documento: null,
+      observacao: 'Taxa da transferência Pix no Asaas', data_pagamento: data, valor_pago: taxa, origem_baixa: 'asaas',
+    });
+    await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid, id });
+  }
+  return 'pago';
+}
+
 // ---------- Sincronização ----------
 
 async function configDaConta(contaId, eid = null) {
@@ -206,6 +247,10 @@ export async function sincronizar(cfg) {
     // Nomes dos clientes antes da transação, para não segurar o banco esperando o Asaas.
     const clientes = new Map();
     for (const p of [...abertas, ...pagas]) await nomeCliente(chave, p.customer, clientes);
+    // Pagamentos enviados que ainda não terminaram: confere o status de cada transferência.
+    const enviados = await all("SELECT transfer_id FROM asaas_pagamentos WHERE conta_bancaria_id = :c AND status = 'enviado'", { c: cfg.conta_bancaria_id });
+    const transferencias = [];
+    for (const e of enviados) transferencias.push(await asaas(chave, `/transfers/${encodeURIComponent(e.transfer_id)}`));
 
     const resumo = await transaction(async () => {
       const contagem = {};
@@ -213,6 +258,11 @@ export async function sincronizar(cfg) {
       for (const p of [...pagas, ...abertas]) {
         const r = await aplicarCobranca(cfg, p, clientes, chave);
         if (r) contagem[r] = (contagem[r] ?? 0) + 1;
+      }
+      const pagamentos = {};
+      for (const t of transferencias) {
+        const r = await aplicarTransferencia(cfg, t);
+        if (r) pagamentos[r] = (pagamentos[r] ?? 0) + 1;
       }
       // Período que já tinha sido importado por arquivo (OFX/planilha): o mesmo valor com até 1 dia de diferença é o
       // mesmo movimento e não entra de novo.
@@ -241,7 +291,7 @@ export async function sincronizar(cfg) {
       ) : [];
       const conciliados = inseridos.length ? await casarJaLancados(cfg.empresa_id, cfg.conta_bancaria_id, inseridos.map((i) => i.id)) : 0;
       await all('UPDATE asaas_contas SET sincronizado_em = now(), ultimo_erro = NULL WHERE conta_bancaria_id = :c', { c: cfg.conta_bancaria_id });
-      return { cobrancas: contagem, movimentos: inseridos.length, conciliados };
+      return { cobrancas: contagem, pagamentos, movimentos: inseridos.length, conciliados };
     });
     return resumo;
   } catch (e) {
@@ -254,7 +304,7 @@ export async function sincronizar(cfg) {
 
 const publico = (a, dono) => a && {
   categoria_receita_id: a.categoria_receita_id, categoria_tarifa_id: a.categoria_tarifa_id, desde: a.desde, ativo: a.ativo,
-  sincronizado_em: a.sincronizado_em, ultimo_erro: a.ultimo_erro, tem_chave: a.tem_chave,
+  sincronizado_em: a.sincronizado_em, ultimo_erro: a.ultimo_erro, tem_chave: a.tem_chave, pagamentos: a.pagamentos,
   // O endereço do webhook leva o token; só o dono vê (é ele quem cadastra no painel do Asaas).
   ...(dono && { webhook_caminho: `/api/integracoes/asaas/webhook/${a.conta_bancaria_id}`, webhook_token: a.webhook_token }),
 };
@@ -292,11 +342,11 @@ asaasRouter.put('/asaas/:conta', async (req, res) => {
     await guardarChave(contaId, chave);
   }
   await all(
-    `INSERT INTO asaas_contas (conta_bancaria_id, empresa_id, categoria_receita_id, categoria_tarifa_id, desde, ativo)
-     VALUES (:c, :eid, :cr, :ct, :desde, :ativo)
+    `INSERT INTO asaas_contas (conta_bancaria_id, empresa_id, categoria_receita_id, categoria_tarifa_id, desde, ativo, pagamentos)
+     VALUES (:c, :eid, :cr, :ct, :desde, :ativo, :pag)
      ON CONFLICT (conta_bancaria_id) DO UPDATE SET categoria_receita_id = excluded.categoria_receita_id,
-       categoria_tarifa_id = excluded.categoria_tarifa_id, desde = excluded.desde, ativo = excluded.ativo`,
-    { c: contaId, eid: req.eid, cr: catReceita, ct: catTarifa, desde, ativo: req.body.ativo !== false },
+       categoria_tarifa_id = excluded.categoria_tarifa_id, desde = excluded.desde, ativo = excluded.ativo, pagamentos = excluded.pagamentos`,
+    { c: contaId, eid: req.eid, cr: catReceita, ct: catTarifa, desde, ativo: req.body.ativo !== false, pag: req.body.pagamentos === true },
   );
   res.json({ ok: true });
 });
@@ -324,6 +374,120 @@ asaasRouter.post('/asaas/:conta/sincronizar', async (req, res) => {
   }
 });
 
+// ---------- Pagamentos pelo Asaas ----------
+
+const SQL_PAGAMENTOS = `SELECT p.*, l.descricao, l.valor AS valor_lancamento, l.vencimento, l.data_pagamento, COALESCE(ct.nome, l.contato) AS contato,
+    ct.chave_pix AS chave_pix_atual, ct.tipo_chave_pix AS tipo_chave_pix_atual, cb.nome AS conta_nome
+  FROM asaas_pagamentos p JOIN lancamentos l ON l.id = p.lancamento_id LEFT JOIN contatos ct ON ct.id = l.contato_id
+  JOIN contas_bancarias cb ON cb.id = p.conta_bancaria_id`;
+
+// Os pagamentos em andamento e os concluídos nos últimos 30 dias.
+asaasRouter.get('/asaas/pagamentos', async (req, res) => {
+  res.json(await all(
+    `${SQL_PAGAMENTOS} WHERE p.empresa_id = :eid AND (p.status <> 'pago' OR l.data_pagamento >= CURRENT_DATE - 30) ORDER BY l.vencimento, p.lancamento_id`,
+    { eid: req.eid },
+  ));
+});
+
+async function lancamentoParaPagar(eid, lancamentoId) {
+  const l = await get(
+    `SELECT l.id, l.tipo, l.valor, l.vencimento, l.descricao, l.data_pagamento, ct.chave_pix, ct.tipo_chave_pix, COALESCE(ct.nome, l.contato) AS contato
+     FROM lancamentos l LEFT JOIN contatos ct ON ct.id = l.contato_id WHERE l.id = :id AND l.empresa_id = :eid`,
+    { id: lancamentoId, eid },
+  );
+  check(l && l.tipo === 'pagar', 'Conta a pagar não encontrada.', 404);
+  check(!l.data_pagamento, 'Esta conta já está paga.', 409);
+  check(l.chave_pix && l.tipo_chave_pix, `Cadastre a chave Pix de ${l.contato ?? 'o fornecedor'} (Clientes e fornecedores) antes de pagar pelo Asaas.`);
+  return l;
+}
+
+// Preparar: só marca no FinVision (nada vai ao Asaas). Qualquer membro pode preparar.
+asaasRouter.post('/asaas/pagamentos', async (req, res) => {
+  const lid = idParam(req.body.lancamento_id);
+  const contaId = idParam(req.body.conta_bancaria_id);
+  const cfg = await configDaConta(contaId, req.eid);
+  check(cfg?.pagamentos, 'Esta conta não está liberada para pagamentos pelo Asaas.');
+  await lancamentoParaPagar(req.eid, lid);
+  const atual = await get('SELECT status FROM asaas_pagamentos WHERE lancamento_id = :l', { l: lid });
+  check(!atual || !['enviado', 'pago'].includes(atual.status), 'Este pagamento já foi enviado ao Asaas.', 409);
+  await all(
+    `INSERT INTO asaas_pagamentos (lancamento_id, empresa_id, conta_bancaria_id, status) VALUES (:l, :eid, :c, 'preparado')
+     ON CONFLICT (lancamento_id) DO UPDATE SET conta_bancaria_id = excluded.conta_bancaria_id, status = 'preparado', transfer_id = NULL,
+       valor = NULL, data_envio = NULL, status_asaas = NULL, autorizado = NULL, erro = NULL, enviado_em = NULL, enviado_por = NULL, preparado_em = now()`,
+    { l: lid, eid: req.eid, c: contaId },
+  );
+  res.status(201).json({ ok: true });
+});
+
+asaasRouter.delete('/asaas/pagamentos/:lid', async (req, res) => {
+  const r = await get(
+    `DELETE FROM asaas_pagamentos WHERE lancamento_id = :l AND empresa_id = :eid AND status IN ('preparado', 'falhou', 'cancelado') RETURNING 1`,
+    { l: idParam(req.params.lid), eid: req.eid },
+  );
+  check(r, 'Só dá para tirar um pagamento que ainda não foi enviado (ou que falhou ou foi cancelado).', 409);
+  res.json({ ok: true });
+});
+
+// O OK: cria a transferência no Asaas com o valor e a chave Pix de agora, agendada (espera o token lá). Só o dono.
+asaasRouter.post('/asaas/pagamentos/:lid/enviar', async (req, res) => {
+  check(req.papel === 'dono', 'Só o dono pode enviar pagamentos ao Asaas.', 403);
+  const lid = idParam(req.params.lid);
+  const pg = await get('SELECT * FROM asaas_pagamentos WHERE lancamento_id = :l AND empresa_id = :eid', { l: lid, eid: req.eid });
+  check(pg, 'Prepare o pagamento antes de enviar.', 404);
+  check(pg.status === 'preparado', 'Este pagamento não está aguardando envio.', 409);
+  const cfg = await configDaConta(pg.conta_bancaria_id, req.eid);
+  check(cfg?.pagamentos, 'Esta conta não está liberada para pagamentos pelo Asaas.');
+  const l = await lancamentoParaPagar(req.eid, lid);
+  const chave = await lerChave(cfg.conta_bancaria_id);
+  check(chave, 'Esta conta ainda não tem a chave de API do Asaas.');
+  const data = l.vencimento > hoje() ? l.vencimento : hoje();
+  // Marca como enviado antes de chamar o Asaas: dois cliques não criam duas transferências.
+  const trava = await get(
+    `UPDATE asaas_pagamentos SET status = 'enviado', enviado_em = now(), enviado_por = :u WHERE lancamento_id = :l AND status = 'preparado' RETURNING 1`,
+    { l: lid, u: req.userId },
+  );
+  check(trava, 'Este pagamento já está sendo enviado.', 409);
+  let t;
+  try {
+    t = await asaas(chave, '/transfers', {}, {
+      method: 'POST',
+      body: {
+        value: l.valor / 100, operationType: 'PIX', pixAddressKey: l.chave_pix, pixAddressKeyType: l.tipo_chave_pix,
+        scheduleDate: data, description: String(l.descricao ?? '').slice(0, 140), externalReference: `finvision:${lid}`,
+      },
+    });
+  } catch (e) {
+    await all(
+      "UPDATE asaas_pagamentos SET status = 'preparado', enviado_em = NULL, enviado_por = NULL, erro = :e WHERE lancamento_id = :l",
+      { l: lid, e: String(e.message).slice(0, 300) },
+    );
+    check(false, `O Asaas não aceitou a transferência: ${e.message}`, 502);
+  }
+  await all(
+    `UPDATE asaas_pagamentos SET transfer_id = :t, valor = :v, data_envio = :d, chave_pix = :ch, tipo_chave_pix = :tc, status_asaas = :sa,
+       autorizado = :au, erro = NULL WHERE lancamento_id = :l`,
+    { t: t.id, v: l.valor, d: data, ch: l.chave_pix, tc: l.tipo_chave_pix, sa: t.status ?? null, au: typeof t.authorized === 'boolean' ? t.authorized : null, l: lid },
+  );
+  if (t.status && t.status !== 'PENDING') await transaction(() => aplicarTransferencia(cfg, t));
+  res.json({ ok: true, aguardando_token: t.authorized === false, status: t.status });
+});
+
+// Cancela no Asaas uma transferência que ainda não foi feita; o pagamento pode ser preparado de novo.
+asaasRouter.post('/asaas/pagamentos/:lid/cancelar', async (req, res) => {
+  check(req.papel === 'dono', 'Só o dono pode cancelar pagamentos no Asaas.', 403);
+  const lid = idParam(req.params.lid);
+  const pg = await get('SELECT * FROM asaas_pagamentos WHERE lancamento_id = :l AND empresa_id = :eid', { l: lid, eid: req.eid });
+  check(pg?.status === 'enviado' && pg.transfer_id, 'Só dá para cancelar um pagamento enviado e ainda não concluído.', 409);
+  const chave = await lerChave(pg.conta_bancaria_id);
+  try {
+    await asaas(chave, `/transfers/${encodeURIComponent(pg.transfer_id)}/cancel`, {}, { method: 'DELETE' });
+  } catch (e) {
+    check(false, `O Asaas não cancelou: ${e.message}`, 502);
+  }
+  await all("UPDATE asaas_pagamentos SET status = 'cancelado', status_asaas = 'CANCELLED', erro = NULL WHERE lancamento_id = :l", { l: lid });
+  res.json({ ok: true });
+});
+
 // ---------- Webhook (público; protegido pelo token da conta) ----------
 // O Asaas manda o token cadastrado no cabeçalho asaas-access-token. Responde 200 rápido mesmo quando ignora o evento,
 // porque erros seguidos fazem o Asaas pausar a fila de webhooks.
@@ -334,12 +498,17 @@ export async function webhookAsaas(req, res) {
   const esperado = cfg ? String(cfg.webhook_token) : '';
   const ok = cfg && token.length === esperado.length && timingSafeEqual(Buffer.from(token), Buffer.from(esperado));
   if (!ok) return res.status(401).json({ erro: 'Token inválido.' });
-  const { event, payment } = req.body ?? {};
-  if (!cfg.ativo || !payment?.id || !String(event ?? '').startsWith('PAYMENT_')) return res.json({ ok: true, ignorado: true });
+  const { event, payment, transfer } = req.body ?? {};
+  const evento = String(event ?? '');
   try {
+    if (evento.startsWith('TRANSFER_') && transfer?.id) {
+      // Vale mesmo com a leitura pausada: um pagamento enviado precisa receber a baixa.
+      return res.json({ ok: true, resultado: await transaction(() => aplicarTransferencia(cfg, transfer)) });
+    }
+    if (!cfg.ativo || !payment?.id || !evento.startsWith('PAYMENT_')) return res.json({ ok: true, ignorado: true });
     const chave = await lerChave(cfg.conta_bancaria_id);
     if (!chave) return res.json({ ok: true, ignorado: true });
-    const r = await transaction(() => aplicarCobranca(cfg, payment, new Map(), chave, event === 'PAYMENT_DELETED'));
+    const r = await transaction(() => aplicarCobranca(cfg, payment, new Map(), chave, evento === 'PAYMENT_DELETED'));
     res.json({ ok: true, resultado: r });
   } catch (e) {
     console.error('webhook asaas:', e.message);

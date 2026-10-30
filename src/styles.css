@@ -338,6 +338,7 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
 .asaas-faixa.erro { border-color: var(--alerta, #c0392b); }
 .asaas-webhook { display: grid; gap: 6px; padding: 12px; border-radius: var(--radius); background: var(--surface-2); margin-top: 8px; }
 .asaas-webhook code { word-break: break-all; }
+.asaas-pagar { align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 14px; }
 
 .login-wrap { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; background: linear-gradient(160deg, var(--primary-soft), var(--bg) 55%); }
 .login-card { width: 100%; max-width: 400px; padding: 28px; display: flex; flex-direction: column; gap: 16px; }

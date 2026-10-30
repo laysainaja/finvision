@@ -6,7 +6,7 @@ import { Field, Icon, Modal, useAcao, useToast } from './ui';
 
 interface ConfigAsaas {
   categoria_receita_id: number | null; categoria_tarifa_id: number | null; desde: string; ativo: boolean;
-  sincronizado_em: string | null; ultimo_erro: string | null; tem_chave: boolean;
+  sincronizado_em: string | null; ultimo_erro: string | null; tem_chave: boolean; pagamentos: boolean;
   webhook_caminho?: string; webhook_token?: string;
 }
 interface ResumoSync { cobrancas: Record<string, number>; movimentos: number; conciliados: number }
@@ -108,10 +108,11 @@ function ConfigurarAsaas({ contaId, contaNome, atual, onClose, onSalvo }: { cont
   const [catReceita, setCatReceita] = useState<number | ''>(atual ? atual.categoria_receita_id ?? '' : padrao(receitas, /servi[cç]o|venda/i));
   const [catTarifa, setCatTarifa] = useState<number | ''>(atual ? atual.categoria_tarifa_id ?? '' : padrao(despesas, /tarifa|taxa/i));
   const [ativo, setAtivo] = useState(atual?.ativo ?? true);
+  const [pagamentos, setPagamentos] = useState(atual?.pagamentos ?? false);
   const webhook = atual?.webhook_caminho ? `${location.origin}${atual.webhook_caminho}` : null;
 
   const salvar = () => acao(async () => {
-    await api.put(`${base}/asaas/${contaId}`, { chave: chave || undefined, desde, categoria_receita_id: catReceita || null, categoria_tarifa_id: catTarifa || null, ativo });
+    await api.put(`${base}/asaas/${contaId}`, { chave: chave || undefined, desde, categoria_receita_id: catReceita || null, categoria_tarifa_id: catTarifa || null, ativo, pagamentos });
     toast(atual ? 'Integração com o Asaas atualizada.' : 'Conta ligada ao Asaas. Agora cadastre o webhook no painel do Asaas para as baixas chegarem na hora.');
     onSalvo();
   });
@@ -154,13 +155,20 @@ function ConfigurarAsaas({ contaId, contaNome, atual, onClose, onSalvo }: { cont
           </select>
         </Field>
       </div>
+      <label className="check asaas-pagar">
+        <input type="checkbox" checked={pagamentos} onChange={(e) => setPagamentos(e.target.checked)} />
+        <span>
+          <b>Pagar contas por esta conta (Pix)</b><br />
+          <span className="small">Ligue só depois de confirmar no Asaas que transferências pedem aprovação com token. O pagamento sobe ao Asaas só com o seu OK, agendado, e sai quando o responsável aprova lá.</span>
+        </span>
+      </label>
       <p className="muted small">
-        Só leitura: o FinVision lê cobranças e extrato; não cria cobranças nem movimenta dinheiro. A chave fica guardada no cofre e não aparece de novo.
+        O FinVision lê cobranças e extrato e não cria cobranças. A chave fica guardada no cofre e não aparece de novo.
         Movimentos antes da data escolhida não são trazidos (use a importação de arquivo para eles).
       </p>
       {webhook && atual?.webhook_token && (
         <div className="asaas-webhook">
-          <div className="kpi-label">Webhook (Asaas → Integrações → Webhooks → Cobranças)</div>
+          <div className="kpi-label">Webhook (Asaas → Integrações → Webhooks: eventos de Cobranças e de Transferências)</div>
           <div className="small">URL: <code>{webhook}</code> <button className="btn-texto" onClick={() => copiar(webhook)}>copiar</button></div>
           <div className="small">Token de autenticação: <code>{atual.webhook_token}</code> <button className="btn-texto" onClick={() => copiar(atual.webhook_token!)}>copiar</button></div>
           <div className="muted small">Com o webhook, a baixa de uma cobrança paga chega na hora; sem ele, chega quando a conciliação for aberta.</div>

@@ -230,6 +230,28 @@ create table if not exists asaas_clientes (
   contato_id bigint not null references contatos(id) on delete cascade,
   primary key (empresa_id, cliente_asaas)
 );
+-- Pagamentos pelo Asaas (etapa 2): chave Pix do fornecedor e o pagamento preparado/enviado. Nada sobe ao Asaas sem o OK
+-- no FinVision, e a transferência vai agendada, para esperar a aprovação com token no Asaas.
+alter table contatos add column if not exists chave_pix text;
+alter table contatos add column if not exists tipo_chave_pix text check (tipo_chave_pix in ('CPF', 'CNPJ', 'EMAIL', 'PHONE', 'EVP'));
+alter table asaas_contas add column if not exists pagamentos boolean not null default false; -- liga só depois de confirmar o token no Asaas
+create table if not exists asaas_pagamentos (
+  lancamento_id bigint primary key references lancamentos(id) on delete cascade,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  conta_bancaria_id bigint not null references contas_bancarias(id) on delete cascade,
+  status text not null check (status in ('preparado', 'enviado', 'pago', 'falhou', 'cancelado')),
+  transfer_id text unique,
+  valor bigint, -- o que foi enviado (o lançamento pode mudar depois)
+  data_envio date, -- data agendada no Asaas
+  chave_pix text,
+  tipo_chave_pix text,
+  status_asaas text,
+  autorizado boolean, -- false enquanto espera o token no Asaas
+  erro text,
+  preparado_em timestamptz not null default now(),
+  enviado_em timestamptz,
+  enviado_por uuid
+);
 alter table lancamentos add column if not exists asaas_id text; -- id da cobrança no Asaas ('tarifa:<id>' para a taxa)
 create unique index if not exists ux_lancamentos_asaas on lancamentos (empresa_id, asaas_id) where asaas_id is not null;
 alter table lancamentos drop constraint if exists lancamentos_origem_baixa_check;
@@ -251,3 +273,4 @@ alter table contatos enable row level security;
 alter table forecast_ajustes enable row level security;
 alter table asaas_contas enable row level security;
 alter table asaas_clientes enable row level security;
+alter table asaas_pagamentos enable row level security;

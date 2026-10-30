@@ -18,6 +18,8 @@ function FormContato({ contato, onClose, onSalvo }: { contato?: Contato; onClose
     email: contato?.email ?? '',
     telefone: contato?.telefone ?? '',
     observacao: contato?.observacao ?? '',
+    chave_pix: contato?.chave_pix ?? '',
+    tipo_chave_pix: contato?.tipo_chave_pix ?? '',
   });
   const salvar = async () => {
     const ok = await acao(() => (contato ? api.put(`${base}/contatos/${contato.id}`, f) : api.post(`${base}/contatos`, f)), contato ? 'Cadastro atualizado.' : 'Cadastro criado.');
@@ -43,6 +45,19 @@ function FormContato({ contato, onClose, onSalvo }: { contato?: Contato; onClose
         <Field label="CNPJ / CPF"><input className="input" value={f.documento} onChange={(e) => setF({ ...f, documento: e.target.value })} /></Field>
         <Field label="E-mail"><input className="input" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         <Field label="Telefone / WhatsApp"><input className="input" value={f.telefone} onChange={(e) => setF({ ...f, telefone: e.target.value })} /></Field>
+        <Field label="Chave Pix (para pagar pelo Asaas)">
+          <input className="input" value={f.chave_pix} onChange={(e) => setF({ ...f, chave_pix: e.target.value })} placeholder="Opcional" />
+        </Field>
+        <Field label="Tipo da chave Pix">
+          <select className="select input" value={f.tipo_chave_pix} onChange={(e) => setF({ ...f, tipo_chave_pix: e.target.value as typeof f.tipo_chave_pix })}>
+            <option value="">—</option>
+            <option value="CNPJ">CNPJ</option>
+            <option value="CPF">CPF</option>
+            <option value="EMAIL">E-mail</option>
+            <option value="PHONE">Celular</option>
+            <option value="EVP">Chave aleatória</option>
+          </select>
+        </Field>
         <Field label="Observação" className="full"><textarea className="input" rows={2} value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} /></Field>
       </div>
       {contato && <div className="muted small">Renomear atualiza o nome em todos os lançamentos deste cadastro.</div>}

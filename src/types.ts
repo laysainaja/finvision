@@ -193,6 +193,7 @@ export interface Categoria {
 export type TipoReceita = 'recorrente' | 'nova' | 'avulsa';
 export const NOME_TIPO_RECEITA: Record<TipoReceita, string> = { recorrente: 'Recorrente', nova: 'Nova venda', avulsa: 'Avulsa' };
 
+export type TipoChavePix = 'CPF' | 'CNPJ' | 'EMAIL' | 'PHONE' | 'EVP';
 export interface Contato {
   id: number;
   nome: string;
@@ -201,6 +202,8 @@ export interface Contato {
   email: string | null;
   telefone: string | null;
   observacao: string | null;
+  chave_pix: string | null;
+  tipo_chave_pix: TipoChavePix | null;
   total_receber: number;
   total_pagar: number;
   lancamentos: number;

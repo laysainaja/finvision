@@ -5,6 +5,7 @@ import { brl, dataBR } from '../lib/format';
 import { NOME_TIPO_RECEITA, type Lancamento, type Resumo, type TipoLancamento } from '../types';
 import { Icon, StatusBadge, useAcao } from '../components/ui';
 import { BaixaModal, ExcluirModal, LancamentoForm, NOME_TIPO } from '../components/LancamentoForms';
+import { PainelPagamentosAsaas, PrepararPagamento, useAsaasPagamentos } from '../components/AsaasPagamentos';
 
 type FiltroStatus = 'em_aberto' | 'vencido' | 'pago' | 'todos';
 
@@ -26,6 +27,9 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
   const [form, setForm] = useState<{ lancamento?: Lancamento } | null>(null);
   const [baixa, setBaixa] = useState<Lancamento[] | null>(null);
   const [excluir, setExcluir] = useState<Lancamento | null>(null);
+  const [pagarAsaas, setPagarAsaas] = useState<Lancamento | null>(null);
+  const asaas = useAsaasPagamentos();
+  const comAsaas = tipo === 'pagar' && asaas.contasPagamento.length > 0;
 
   // Espera o usuário parar de digitar antes de buscar.
   useEffect(() => {
@@ -102,6 +106,8 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
           <div className={'kpi-valor ' + cor}>{brl(r?.mes ?? 0)}</div>
         </div>
       </div>
+
+      {tipo === 'pagar' && <PainelPagamentosAsaas pagamentos={asaas.pagamentos} onMudou={() => (asaas.recarregar(), recarregar())} />}
 
       <div className="card">
         <div className="toolbar">
@@ -205,10 +211,16 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
                     <StatusBadge status={l.status} tipo={tipo} />
                     {l.data_pagamento && <div className="desc-sub">em {dataBR(l.data_pagamento)}</div>}
                     {l.extrato_id && <div className="desc-sub" title="Conferido com o extrato bancário">✓ conciliado</div>}
+                    {comAsaas && asaas.porLancamento.get(l.id) && l.status !== 'pago' && <div className="desc-sub">Asaas: {asaas.porLancamento.get(l.id)!.status}</div>}
                   </td>
                   <td className="acoes">
                     {l.status !== 'pago' ? (
-                      <button className="btn btn-sm" onClick={() => setBaixa([l])}>{nomes.acao}</button>
+                      <>
+                        <button className="btn btn-sm" onClick={() => setBaixa([l])}>{nomes.acao}</button>
+                        {comAsaas && !['preparado', 'enviado'].includes(asaas.porLancamento.get(l.id)?.status ?? '') && (
+                          <button className="btn btn-sm btn-ghost" onClick={() => setPagarAsaas(l)} title="Pagar pelo Asaas (Pix)">Asaas</button>
+                        )}
+                      </>
                     ) : (
                       <button className="btn btn-sm btn-ghost" onClick={() => estornar(l)} title="Estornar pagamento">
                         <Icon name="desfazer" />
@@ -242,6 +254,7 @@ export function Lancamentos({ tipo }: { tipo: TipoLancamento }) {
       {form && <LancamentoForm tipo={tipo} lancamento={form.lancamento} contatos={contatos} onClose={() => setForm(null)} onSaved={concluir} />}
       {baixa && <BaixaModal lancamentos={baixa} onClose={() => setBaixa(null)} onSaved={concluir} />}
       {excluir && <ExcluirModal lancamento={excluir} onClose={() => setExcluir(null)} onDone={concluir} />}
+      {pagarAsaas && <PrepararPagamento lancamento={pagarAsaas} contas={asaas.contasPagamento} onClose={() => setPagarAsaas(null)} onSalvo={() => (setPagarAsaas(null), asaas.recarregar())} />}
     </>
   );
 }
