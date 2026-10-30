@@ -223,6 +223,13 @@ create table if not exists asaas_contas (
   sincronizado_em timestamptz,
   ultimo_erro text
 );
+-- Cliente do Asaas → cadastro do FinVision (no Asaas costuma estar o nome da pessoa; aqui, o da empresa cliente).
+create table if not exists asaas_clientes (
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  cliente_asaas text not null,
+  contato_id bigint not null references contatos(id) on delete cascade,
+  primary key (empresa_id, cliente_asaas)
+);
 alter table lancamentos add column if not exists asaas_id text; -- id da cobrança no Asaas ('tarifa:<id>' para a taxa)
 create unique index if not exists ux_lancamentos_asaas on lancamentos (empresa_id, asaas_id) where asaas_id is not null;
 alter table lancamentos drop constraint if exists lancamentos_origem_baixa_check;
@@ -243,3 +250,4 @@ alter table escritorio_membros enable row level security;
 alter table contatos enable row level security;
 alter table forecast_ajustes enable row level security;
 alter table asaas_contas enable row level security;
+alter table asaas_clientes enable row level security;

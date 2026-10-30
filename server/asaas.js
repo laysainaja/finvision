@@ -66,11 +66,11 @@ async function guardarChave(contaId, chave) {
  * vencimento até 3 dias de diferença e mesmo dia ou mesma primeira palavra no nome do cliente.
  */
 async function acharExistente(eid, p, nome) {
-  const porId = await get('SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid, aid: p.id });
+  const porId = await get('SELECT id, data_pagamento, asaas_id, contato_id FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid, aid: p.id });
   if (porId) return porId;
   if (p.invoiceNumber) {
     const porFatura = await get(
-      `SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
+      `SELECT id, data_pagamento, asaas_id, contato_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
          AND (documento = :doc OR descricao ~* :re) ORDER BY data_pagamento NULLS FIRST LIMIT 1`,
       { eid, doc: `Fatura ${p.invoiceNumber}`, re: `fatura nr\\.? *${p.invoiceNumber}\\M` },
     );
@@ -78,7 +78,7 @@ async function acharExistente(eid, p, nome) {
   }
   const primeira = (nome ?? '').split(/\s+/)[0] ?? '';
   return get(
-    `SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
+    `SELECT id, data_pagamento, asaas_id, contato_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
        AND data_pagamento IS NULL AND valor = :valor AND vencimento BETWEEN :venc::date - 3 AND :venc::date + 3
        AND (vencimento = :venc OR (:p1 <> '' AND split_part(upper(COALESCE(contato, '')), ' ', 1) = :p1))
      ORDER BY abs(vencimento - :venc::date) LIMIT 1`,
@@ -92,6 +92,10 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
   const documento = p.invoiceNumber ? `Fatura ${p.invoiceNumber}` : null;
   const nome = await nomeCliente(chave, p.customer, clientes);
   const atual = await acharExistente(eid, p, nome);
+  // O cadastro do lançamento já existente diz quem é este cliente do Asaas no FinVision (fica guardado para as próximas).
+  if (atual?.contato_id && p.customer) {
+    await all('INSERT INTO asaas_clientes (empresa_id, cliente_asaas, contato_id) VALUES (:eid, :c, :ct) ON CONFLICT DO NOTHING', { eid, c: p.customer, ct: atual.contato_id });
+  }
   const paga = PAGAS.includes(p.status);
   // Antecipada (o dinheiro já entrou na antecipação) ou vencida antes da data escolhida (cobrança antiga esquecida aberta
   // no Asaas): não vira conta a receber. Se uma já tinha sido criada por aqui, sai.
@@ -129,7 +133,10 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
     return paga ? 'baixada' : 'atualizada';
   }
 
-  const contato = nome ? await resolverContato(eid, nome, 'receber') : null;
+  const ligado = p.customer
+    ? await get('SELECT c.id, c.nome FROM asaas_clientes a JOIN contatos c ON c.id = a.contato_id WHERE a.empresa_id = :eid AND a.cliente_asaas = :c', { eid, c: p.customer })
+    : null;
+  const contato = ligado ?? (nome ? await resolverContato(eid, nome, 'receber') : null);
   const tipoCobranca = p.installment ? 'Cobrança Parcelada' : p.subscription ? 'Cobrança Recorrente' : 'Cobrança Avulsa';
   const descricao = p.description && !/^descri[cç][aã]o n[aã]o informada$/i.test(p.description) ? p.description : null;
   const id = await inserirLancamento({
@@ -202,7 +209,8 @@ export async function sincronizar(cfg) {
 
     const resumo = await transaction(async () => {
       const contagem = {};
-      for (const p of [...abertas, ...pagas]) {
+      // Pagas primeiro: elas costumam achar o lançamento antigo e ensinar quem é cada cliente do Asaas.
+      for (const p of [...pagas, ...abertas]) {
         const r = await aplicarCobranca(cfg, p, clientes, chave);
         if (r) contagem[r] = (contagem[r] ?? 0) + 1;
       }
