@@ -210,6 +210,22 @@ create table if not exists forecast_ajustes (
   primary key (empresa_id, mes, campo)
 );
 
+-- Colaboradores, para a provisão de folha (13º, férias, 1/3, FGTS). O valor da base sai da média do que foi pago à pessoa
+-- (salário + comissões) pelo cadastro ligado; salario_base é usado quando ainda não há pagamentos.
+create table if not exists colaboradores (
+  id bigint generated always as identity primary key,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  nome text not null,
+  vinculo text not null check (vinculo in ('clt', 'estagio', 'pj', 'socio')),
+  contato_id bigint references contatos(id) on delete set null,
+  salario_base bigint,
+  admissao date,
+  demissao date,
+  ferias_desde date, -- início do período aquisitivo das férias a vencer (vazio = admissão)
+  observacao text,
+  criado_em timestamptz not null default now()
+);
+
 -- Integração com o Asaas (só leitura): cobranças viram contas a receber (com baixa quando pagas) e as movimentações
 -- da conta caem na conciliação. A chave de API de cada conta fica no Vault ('asaas_conta_<id>'), nunca nesta tabela.
 create table if not exists asaas_contas (
@@ -274,3 +290,4 @@ alter table forecast_ajustes enable row level security;
 alter table asaas_contas enable row level security;
 alter table asaas_clientes enable row level security;
 alter table asaas_pagamentos enable row level security;
+alter table colaboradores enable row level security;

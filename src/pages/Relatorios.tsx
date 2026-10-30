@@ -15,6 +15,7 @@ export const RELATORIOS: { id: string; nome: string; descricao: string; grupo: s
   { id: 'dashboard', nome: 'Dashboard', descricao: 'Serviço: novos clientes, churn, LTV, ticket médio e ARPU. Produto: faturamento, CMV, markup, ponto de equilíbrio. Nos dois: margens e lucro.', grupo: 'Resultado' },
   { id: 'mensal', nome: 'Relatório semanal', descricao: 'O que foi realizado no período: receitas, despesas, total, receita por cliente e análise de pagamentos.', grupo: 'Resultado' },
   { id: 'forecast', nome: 'Forecast', descricao: 'Investimento e ROAS, vendas, retenção e churn, receita, custos fixos e variáveis, lucro e caixa: realizado e projeção.', grupo: 'Resultado' },
+  { id: 'folha', nome: 'Provisão de folha', descricao: 'Quanto separar por mês para 13º, férias + 1/3 e FGTS de cada colaborador, e quanto já está acumulado.', grupo: 'Resultado' },
   { id: 'dre', nome: 'DRE gerencial', descricao: 'Receita, custos, despesas e resultado (lucro ou prejuízo) mês a mês.', grupo: 'Resultado' },
   { id: 'recebimentos', nome: 'Análise de recebimentos', descricao: 'Recebimentos por categoria (ou por cliente) em cada mês, com participação no total.', grupo: 'Análise financeira' },
   { id: 'pagamentos', nome: 'Análise de pagamentos', descricao: 'Pagamentos por categoria (ou por fornecedor) em cada mês, com participação no total.', grupo: 'Análise financeira' },
