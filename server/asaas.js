@@ -61,17 +61,47 @@ async function guardarChave(contaId, chave) {
 // ---------- Cobranças → contas a receber ----------
 
 /**
- * Cria ou atualiza o lançamento de uma cobrança. Acha pelo id do Asaas ou pelo número da fatura (cobranças que já
- * tinham sido lançadas à mão ou por planilha, com "Fatura 123" no documento). O que já foi pago à mão não é mexido.
+ * Lançamento que já corresponde à cobrança: pelo id do Asaas; pelo número da fatura (no documento, "Fatura 123", ou na
+ * descrição, "fatura nr. 123", como vem do Conta Azul); ou uma conta a receber em aberto lançada à mão com o mesmo valor,
+ * vencimento até 3 dias de diferença e mesmo dia ou mesma primeira palavra no nome do cliente.
  */
+async function acharExistente(eid, p, nome) {
+  const porId = await get('SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid, aid: p.id });
+  if (porId) return porId;
+  if (p.invoiceNumber) {
+    const porFatura = await get(
+      `SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
+         AND (documento = :doc OR descricao ~* :re) ORDER BY data_pagamento NULLS FIRST LIMIT 1`,
+      { eid, doc: `Fatura ${p.invoiceNumber}`, re: `fatura nr\\.? *${p.invoiceNumber}\\M` },
+    );
+    if (porFatura) return porFatura;
+  }
+  const primeira = (nome ?? '').split(/\s+/)[0] ?? '';
+  return get(
+    `SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber' AND asaas_id IS NULL
+       AND data_pagamento IS NULL AND valor = :valor AND vencimento BETWEEN :venc::date - 3 AND :venc::date + 3
+       AND (vencimento = :venc OR (:p1 <> '' AND split_part(upper(COALESCE(contato, '')), ' ', 1) = :p1))
+     ORDER BY abs(vencimento - :venc::date) LIMIT 1`,
+    { eid, valor: centavos(p.value), venc: p.dueDate, p1: primeira.toUpperCase() },
+  );
+}
+
+/** Cria ou atualiza o lançamento de uma cobrança. O que já foi pago (à mão, por planilha ou antes) não é mexido. */
 async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
   const eid = cfg.empresa_id;
   const documento = p.invoiceNumber ? `Fatura ${p.invoiceNumber}` : null;
-  const atual = await get(
-    `SELECT id, data_pagamento, asaas_id FROM lancamentos WHERE empresa_id = :eid AND tipo = 'receber'
-       AND (asaas_id = :aid OR (asaas_id IS NULL AND :doc::text IS NOT NULL AND documento = :doc)) ORDER BY asaas_id NULLS LAST LIMIT 1`,
-    { eid, aid: p.id, doc: documento },
-  );
+  const nome = await nomeCliente(chave, p.customer, clientes);
+  const atual = await acharExistente(eid, p, nome);
+  const paga = PAGAS.includes(p.status);
+  // Antecipada (o dinheiro já entrou na antecipação) ou vencida antes da data escolhida (cobrança antiga esquecida aberta
+  // no Asaas): não vira conta a receber. Se uma já tinha sido criada por aqui, sai.
+  if (!paga && (p.anticipated || (p.dueDate && p.dueDate < cfg.desde))) {
+    if (atual && !atual.data_pagamento && atual.asaas_id === p.id) {
+      await all('DELETE FROM lancamentos WHERE id = :id', { id: atual.id });
+      return 'removida';
+    }
+    return null;
+  }
   if (apagada || p.deleted || p.status === 'REFUNDED' || p.status === 'REFUND_REQUESTED') {
     // Cobrança apagada/estornada antes de pagar: some das contas a receber. Paga e estornada fica como está (o estorno aparece no extrato).
     if (atual && !atual.data_pagamento) {
@@ -80,13 +110,16 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
     }
     return null;
   }
-  const paga = PAGAS.includes(p.status);
   if (!paga && !ABERTAS.includes(p.status)) return null;
   const valor = centavos(p.value);
   const dataPagamento = paga ? (p.paymentDate ?? p.clientPaymentDate) : null;
 
   if (atual) {
-    if (atual.data_pagamento) return null; // já baixado (à mão ou antes): não mexe
+    if (atual.data_pagamento) {
+      // Já baixado (à mão, por planilha ou antes): só guarda o id do Asaas para reconhecer da próxima vez.
+      if (!atual.asaas_id) await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid: p.id, id: atual.id });
+      return null;
+    }
     await all(
       `UPDATE lancamentos SET asaas_id = :aid, valor = :valor, vencimento = :venc, conta_bancaria_id = COALESCE(conta_bancaria_id, :conta),
          data_pagamento = :pg, valor_pago = :vp, origem_baixa = :origem WHERE id = :id`,
@@ -96,7 +129,6 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
     return paga ? 'baixada' : 'atualizada';
   }
 
-  const nome = await nomeCliente(chave, p.customer, clientes);
   const contato = nome ? await resolverContato(eid, nome, 'receber') : null;
   const tipoCobranca = p.installment ? 'Cobrança Parcelada' : p.subscription ? 'Cobrança Recorrente' : 'Cobrança Avulsa';
   const descricao = p.description && !/^descri[cç][aã]o n[aã]o informada$/i.test(p.description) ? p.description : null;
@@ -161,7 +193,7 @@ export async function sincronizar(cfg) {
   try {
     // Abertas: todas (vencidas e a vencer). Pagas: as que caíram desde a última vez.
     const abertas = [];
-    for (const status of ['PENDING', 'OVERDUE', 'CONFIRMED']) abertas.push(...(await todas(chave, '/payments', { status })));
+    for (const status of ['PENDING', 'OVERDUE', 'CONFIRMED']) abertas.push(...(await todas(chave, '/payments', { status, 'dueDate[ge]': cfg.desde })));
     const pagas = await todas(chave, '/payments', { 'paymentDate[ge]': desde, 'paymentDate[le]': ate });
     const movimentos = await todas(chave, '/financialTransactions', { startDate: desde, finishDate: ate, order: 'asc' });
     // Nomes dos clientes antes da transação, para não segurar o banco esperando o Asaas.
@@ -174,7 +206,20 @@ export async function sincronizar(cfg) {
         const r = await aplicarCobranca(cfg, p, clientes, chave);
         if (r) contagem[r] = (contagem[r] ?? 0) + 1;
       }
-      const validos = movimentos.filter((m) => isDate(m.date) && centavos(m.value) !== 0);
+      // Período que já tinha sido importado por arquivo (OFX/planilha): o mesmo valor com até 1 dia de diferença é o
+      // mesmo movimento e não entra de novo.
+      const importados = await all(
+        `SELECT data, valor FROM extrato_itens WHERE conta_bancaria_id = :conta AND fitid NOT LIKE 'asaas:%' AND data BETWEEN :de::date - 1 AND :ate::date + 1`,
+        { conta: cfg.conta_bancaria_id, de: desde, ate },
+      );
+      const usados = new Set();
+      const jaImportado = (m) => {
+        const i = importados.findIndex((x, k) => !usados.has(k) && x.valor === centavos(m.value) && Math.abs(Date.parse(x.data) - Date.parse(m.date)) <= 86400000);
+        if (i < 0) return false;
+        usados.add(i);
+        return true;
+      };
+      const validos = movimentos.filter((m) => isDate(m.date) && centavos(m.value) !== 0 && !jaImportado(m));
       const inseridos = validos.length ? await all(
         `INSERT INTO extrato_itens (empresa_id, conta_bancaria_id, data, descricao, valor, fitid)
          SELECT :eid::bigint, :conta::bigint, d, NULLIF(t, ''), v, f
