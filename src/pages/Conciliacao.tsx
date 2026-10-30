@@ -3,7 +3,7 @@ import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR } from '../lib/format';
 import { lerExtrato, type ItemExtrato } from '../lib/extrato';
-import type { ExtratoItem, Sugestao } from '../types';
+import type { Contato, ExtratoItem, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
 import { ConciliacaoDias } from '../components/ConciliacaoDias';
 
@@ -30,6 +30,9 @@ export function Conciliacao() {
 
   // Centros de custo já usados, para escolher na hora de conciliar (uma lista para todas as linhas).
   const opcoes = useApi<{ centros_custo: string[] }>(`${base}/movimentacoes/opcoes?v=${versao}`);
+  // Clientes e fornecedores já cadastrados, para escolher ao criar o lançamento (ou digitar um novo).
+  const clientes = useApi<Contato[]>(`${base}/contatos?tipo=cliente&v=${versao}`);
+  const fornecedores = useApi<Contato[]>(`${base}/contatos?tipo=fornecedor&v=${versao}`);
   const lista = useApi<ExtratoItem[]>(contaId && aba !== 'todos' ? `${base}/extrato${qs({ conta_id: contaId, status: aba, v: versao })}` : null);
   const itens = lista.data ?? [];
   const conta = contas.find((c) => c.id === contaId);
@@ -180,6 +183,8 @@ export function Conciliacao() {
           </div>
         )}
         <datalist id="centros-custo-conc">{opcoes.data?.centros_custo.map((c) => <option key={c} value={c} />)}</datalist>
+        <datalist id="clientes-conc">{clientes.data?.map((c) => <option key={c.id} value={c.nome} />)}</datalist>
+        <datalist id="fornecedores-conc">{fornecedores.data?.map((c) => <option key={c.id} value={c.nome} />)}</datalist>
         {visiveis.slice(0, limite).map((i) => <LinhaConciliacao key={i.id} item={i} />)}
         {lista.data && visiveis.length === 0 && (
           <div className="vazio">{filtroTexto || sentido ? 'Nenhum movimento com esse filtro.' : aba === 'pendente' ? 'Nenhum movimento pendente nesta conta. 🎉' : 'Nenhum item aqui.'}</div>
@@ -374,7 +379,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                       </select>
                     </Field>
                     <Field label={entrada ? 'Cliente' : 'Fornecedor'}>
-                      <input className="input" value={contato} onChange={(e) => setContato(e.target.value)} placeholder="Opcional" />
+                      <input className="input" list={entrada ? 'clientes-conc' : 'fornecedores-conc'} value={contato} onChange={(e) => setContato(e.target.value)} placeholder="Escolha ou digite um novo" />
                     </Field>
                     <Field label="Centro de custo">
                       <input className="input" list="centros-custo-conc" value={centro} onChange={(e) => setCentro(e.target.value)} placeholder="Opcional" />
