@@ -5,7 +5,9 @@
 // Base = média mensal do que foi pago à pessoa nos últimos 12 meses (salário + comissões, como manda a lei para 13º e
 // férias), pelo cadastro de cliente/fornecedor ligado; sem pagamentos, vale o salário base informado. O primeiro salário
 // (proporcional aos dias do mês da admissão, pago até o dia 10 do mês seguinte) fica fora da média.
-// Mês conta para 13º e férias quando a pessoa trabalhou 15 dias ou mais nele. INSS patronal não entra: no Simples
+// Mês conta para 13º e férias quando a pessoa trabalhou 15 dias ou mais nele. O acumulado é a soma mês a mês: cada
+// mês trabalhado gera 1/12 do que a pessoa recebeu por ele (o pagamento até o dia 10 é do mês anterior); mês ainda sem
+// pagamento usa a base. INSS patronal não entra: no Simples
 // Nacional (anexos III e V) ele já está dentro do DAS.
 import express from 'express';
 import { all, get, hoje } from './db.js';
@@ -96,6 +98,10 @@ export function mesesTrabalhados(inicio, fim) {
 }
 
 const r2 = (v) => Math.round(v);
+const mesDe = (d) => d.slice(0, 7);
+const fimDoMes = (m) => `${m}-${String(ultimoDia(Number(m.slice(0, 4)), Number(m.slice(5, 7)))).padStart(2, '0')}`;
+// Salário pago até o dia 10 é do mês anterior (competência).
+const competencia = (d) => (Number(d.slice(8, 10)) <= 10 ? mesDe(addMonths(d.slice(0, 8) + '01', -1)) : mesDe(d));
 
 folhaRouter.get('/relatorios/provisao-folha', async (req, res) => {
   const ref = isDate(req.query.ref) ? req.query.ref : hoje();
@@ -127,31 +133,64 @@ folhaRouter.get('/relatorios/provisao-folha', async (req, res) => {
       acumulado: { decimo: 0, meses_decimo: 0, ferias: 0, terco: 0, recesso: 0, meses_ferias: 0, ferias_vencidas: false, fgts: 0, multa: 0, total: 0 },
     };
     const inicioFerias = c.ferias_desde ?? c.admissao;
+    item.meses = [];
     if (c.vinculo === 'clt') {
       const m = item.mensal;
       m.decimo = r2(base / 12); m.ferias = r2(base / 12); m.terco = r2(base / 36);
       m.fgts = r2((m.decimo + m.ferias + m.terco) * 0.08);
       m.multa = multa ? r2(base * 0.08 * 0.4) : 0;
       m.total = m.decimo + m.ferias + m.terco + m.fgts + m.multa;
-      const a = item.acumulado;
-      const inicioAno = `${ref.slice(0, 4)}-01-01`;
-      a.meses_decimo = mesesTrabalhados(c.admissao > inicioAno ? c.admissao : inicioAno, ref);
-      a.meses_ferias = mesesTrabalhados(inicioFerias, ref);
-      a.ferias_vencidas = a.meses_ferias >= 12;
-      a.decimo = r2((base / 12) * a.meses_decimo);
-      a.ferias = r2((base / 12) * a.meses_ferias);
-      a.terco = r2(a.ferias / 3);
-      a.fgts = r2((a.decimo + a.ferias + a.terco) * 0.08);
-      a.multa = multa ? r2(base * 0.08 * 0.4 * mesesTrabalhados(c.admissao, ref)) : 0;
-      a.total = a.decimo + a.ferias + a.terco + a.fgts + a.multa;
     } else if (c.vinculo === 'estagio') {
       item.mensal.recesso = r2(base / 12);
       item.mensal.total = item.mensal.recesso;
+    }
+    if ((c.vinculo === 'clt' || c.vinculo === 'estagio') && c.admissao) {
+      // Mês a mês: do início do período (13º do ano e férias em aberto) até a data escolhida.
+      const inicioAno = `${ref.slice(0, 4)}-01-01`;
+      let inicio = c.vinculo === 'clt' && inicioAno < inicioFerias ? inicioAno : inicioFerias;
+      if (inicio < c.admissao) inicio = c.admissao;
+      const porMes = new Map();
+      if (c.contato_id) {
+        const pagos = await all(
+          `SELECT COALESCE(l.data_pagamento, l.vencimento) AS data, (l.data_pagamento IS NOT NULL) AS pago, COALESCE(l.valor_pago, l.valor) AS valor
+           FROM lancamentos l LEFT JOIN categorias cat ON cat.id = l.categoria_id
+           WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND l.contato_id = :ct AND COALESCE(cat.nome, '') ~* :cats
+             AND COALESCE(l.data_pagamento, l.vencimento) BETWEEN :de AND :ate`,
+          { eid: req.eid, ct: c.contato_id, cats: CATEGORIAS_SALARIO, de: inicio.slice(0, 8) + '01', ate: addDays(addMonths(ref.slice(0, 8) + '01', 1), 9) },
+        );
+        for (const p of pagos) {
+          const k = competencia(p.data);
+          const v = porMes.get(k) ?? { recebido: 0, a_pagar: 0 };
+          v[p.pago ? 'recebido' : 'a_pagar'] += p.valor;
+          porMes.set(k, v);
+        }
+      }
       const a = item.acumulado;
-      a.meses_ferias = mesesTrabalhados(inicioFerias, ref);
+      for (let mes = mesDe(inicio); mes <= mesDe(ref); mes = mesDe(addMonths(mes + '-01', 1))) {
+        const de = `${mes}-01` < c.admissao ? c.admissao : `${mes}-01`;
+        const ate = [fimDoMes(mes), ref, c.demissao ?? '9999-12-31'].sort()[0];
+        const conta = mesesTrabalhados(de, ate) === 1;
+        const pg = porMes.get(mes) ?? { recebido: 0, a_pagar: 0 };
+        const estimado = pg.recebido + pg.a_pagar === 0;
+        const rem = estimado ? base : pg.recebido + pg.a_pagar;
+        const linha = { mes, recebido: pg.recebido, a_pagar: pg.a_pagar, estimado, remuneracao: rem, conta, decimo: 0, ferias: 0, terco: 0, recesso: 0, fgts: 0, multa: 0, total: 0 };
+        if (conta) {
+          const noPeriodoFerias = mes >= mesDe(inicioFerias);
+          if (c.vinculo === 'clt') {
+            if (mes >= mesDe(inicioAno)) (linha.decimo = r2(rem / 12)), a.meses_decimo++;
+            if (noPeriodoFerias) (linha.ferias = r2(rem / 12)), (linha.terco = r2(rem / 36)), a.meses_ferias++;
+            linha.fgts = r2((linha.decimo + linha.ferias + linha.terco) * 0.08);
+            linha.multa = multa ? r2(rem * 0.08 * 0.4) : 0;
+          } else if (noPeriodoFerias) {
+            linha.recesso = r2(rem / 12);
+            a.meses_ferias++;
+          }
+          linha.total = linha.decimo + linha.ferias + linha.terco + linha.recesso + linha.fgts + linha.multa;
+        }
+        for (const k of ['decimo', 'ferias', 'terco', 'recesso', 'fgts', 'multa', 'total']) a[k] += linha[k];
+        item.meses.push(linha);
+      }
       a.ferias_vencidas = a.meses_ferias >= 12;
-      a.recesso = r2((base / 12) * a.meses_ferias);
-      a.total = a.recesso;
     }
     colaboradores.push(item);
   }

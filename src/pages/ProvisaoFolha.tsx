@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
-import { brl, dataBR, hoje } from '../lib/format';
+import { brl, dataBR, hoje, mesCurto } from '../lib/format';
 import { exportarCSV } from '../lib/exportar';
 import type { Contato } from '../types';
 import { Field, Icon, Modal, useAcao } from '../components/ui';
@@ -15,10 +15,11 @@ interface Colaborador {
   admissao: string | null; demissao: string | null; ferias_desde: string | null; observacao: string | null;
 }
 interface Valores { decimo: number; ferias: number; terco: number; recesso: number; fgts: number; multa: number; total: number }
+interface MesProvisao extends Valores { mes: string; recebido: number; a_pagar: number; estimado: boolean; remuneracao: number; conta: boolean }
 interface LinhaProvisao {
   id: number; nome: string; vinculo: Vinculo; admissao: string | null; ferias_desde: string | null; salario_base: number | null;
   media: number | null; meses_media: number; base: number; base_origem: 'media' | 'salario' | null;
-  mensal: Valores; acumulado: Valores & { meses_decimo: number; meses_ferias: number; ferias_vencidas: boolean };
+  mensal: Valores; acumulado: Valores & { meses_decimo: number; meses_ferias: number; ferias_vencidas: boolean }; meses: MesProvisao[];
 }
 interface RelProvisao { ref: string; multa: boolean; colaboradores: LinhaProvisao[]; totais: { mensal: number; decimo: number; ferias: number; recesso: number; fgts: number; acumulado: number } }
 
@@ -28,6 +29,7 @@ export function ProvisaoFolha() {
   const [ref, setRef] = useState(hoje());
   const [multa, setMulta] = useState(false);
   const [editar, setEditar] = useState<Colaborador | 'novo' | null>(null);
+  const [detalhe, setDetalhe] = useState<number | null>(null);
   const cadastro = useApi<Colaborador[]>(`${base}/colaboradores?v=${versao}`);
   const { data, erro, recarregar } = useApi<RelProvisao>(`${base}/relatorios/provisao-folha${qs({ ref, multa: multa ? 1 : null, v: versao })}`);
   const comProvisao = data?.colaboradores.filter((c) => c.mensal.total > 0) ?? [];
@@ -75,7 +77,7 @@ export function ProvisaoFolha() {
                 {comProvisao.map((c) => (
                   <tr key={c.id}>
                     <td className="col-fixa">
-                      <button className="link-botao" onClick={() => setEditar(cadastro.data?.find((x) => x.id === c.id) ?? null)}>{c.nome}</button>
+                      <button className="link-botao" onClick={() => setDetalhe(c.id)} title="Ver mês a mês">{c.nome}</button>
                       <div className="desc-sub">
                         {NOME_VINCULO[c.vinculo]} · desde {c.admissao ? dataBR(c.admissao) : '—'}
                         {c.acumulado.ferias_vencidas && <span className="alerta"> · {c.vinculo === 'clt' ? 'férias' : 'recesso'} vencido(as): {c.acumulado.meses_ferias} meses sem tirar</span>}
@@ -112,10 +114,92 @@ export function ProvisaoFolha() {
       <p className="muted small" style={{ margin: 0 }}>
         CLT: 13º = base ÷ 12, férias = base ÷ 12, 1/3 de férias = base ÷ 36, FGTS = 8% sobre os três. Estágio: só o recesso remunerado (30 dias por ano) = base ÷ 12.
         PJ e sócios não geram provisão. A base é a média do que foi pago à pessoa nos últimos 12 meses (salário + comissões), pelo cadastro ligado; sem pagamentos, vale o salário informado.
-        Conta o mês em que a pessoa trabalhou 15 dias ou mais. O INSS patronal não entra (no Simples, anexos III e V, já está no DAS). O valor de cada linha pequena é o acumulado até a data escolhida.
+        Conta o mês em que a pessoa trabalhou 15 dias ou mais. O acumulado soma mês a mês 1/12 do que a pessoa recebeu por cada mês (o pagamento até o dia 10 é do mês anterior; mês ainda sem pagamento usa a base).
+        O INSS patronal não entra (no Simples, anexos III e V, já está no DAS). Clique no nome para ver o período inteiro, mês a mês.
       </p>
+      {detalhe !== null && data?.colaboradores.find((c) => c.id === detalhe) && (
+        <DetalheMesAMes linha={data.colaboradores.find((c) => c.id === detalhe)!} multa={data.multa} empresa={empresa?.nome ?? ''}
+          onClose={() => setDetalhe(null)} onEditar={() => (setEditar(cadastro.data?.find((x) => x.id === detalhe) ?? null), setDetalhe(null))} />
+      )}
       {editar && <FormColaborador colaborador={editar === 'novo' ? undefined : editar} onClose={() => setEditar(null)} onSalvo={salvo} />}
     </>
+  );
+}
+
+/** Todo o período do colaborador: quanto recebeu por mês e quanto aquele mês gerou de 13º, férias, 1/3 e FGTS. */
+function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: LinhaProvisao; multa: boolean; empresa: string; onClose: () => void; onEditar: () => void }) {
+  const clt = linha.vinculo === 'clt';
+  const a = linha.acumulado;
+  const totalRem = linha.meses.reduce((s, m) => s + m.remuneracao, 0);
+  const exportar = () => exportarCSV(`Provisão de folha ${linha.nome}`,
+    clt ? ['Mês', 'Recebido', 'A pagar', 'Conta?', '13º', 'Férias', '1/3', 'FGTS', ...(multa ? ['Multa FGTS'] : []), 'Total']
+      : ['Mês', 'Recebido', 'A pagar', 'Conta?', 'Recesso', 'Total'],
+    [...linha.meses.map((m) => [mesCurto(m.mes + '-01'), m.recebido, m.a_pagar, m.conta ? 'sim' : 'não',
+      ...(clt ? [m.decimo, m.ferias, m.terco, m.fgts, ...(multa ? [m.multa] : [])] : [m.recesso]), m.total]),
+     ['Total', linha.meses.reduce((s, m) => s + m.recebido, 0), linha.meses.reduce((s, m) => s + m.a_pagar, 0), '',
+      ...(clt ? [a.decimo, a.ferias, a.terco, a.fgts, ...(multa ? [a.multa] : [])] : [a.recesso]), a.total]],
+    [`Provisão de folha · ${empresa} · ${linha.nome}`, `${NOME_VINCULO[linha.vinculo]} · admissão ${linha.admissao ? dataBR(linha.admissao) : '—'}`]);
+  return (
+    <Modal titulo={`${linha.nome} · mês a mês`} onClose={onClose} largura={980}
+      rodape={<>
+        <button className="btn" style={{ marginRight: 'auto' }} onClick={onEditar}><Icon name="editar" /> Editar cadastro</button>
+        <button className="btn" onClick={exportar}><Icon name="upload" /> Exportar planilha</button>
+        <button className="btn btn-primary" onClick={onClose}>Fechar</button>
+      </>}>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        {NOME_VINCULO[linha.vinculo]} · admissão {linha.admissao ? dataBR(linha.admissao) : '—'}
+        {linha.ferias_desde && ` · férias a vencer desde ${dataBR(linha.ferias_desde)}`}
+        {clt ? ` · 13º: ${a.meses_decimo}/12 · férias: ${a.meses_ferias}/12` : ` · recesso: ${a.meses_ferias}/12`}
+        {a.ferias_vencidas && <span className="alerta"> · {clt ? 'férias vencidas' : 'recesso vencido'}</span>}
+      </p>
+      {linha.meses.length === 0 ? <div className="vazio">Sem meses para mostrar (falta a data de admissão).</div> : (
+        <div className="table-wrap">
+          <table className="tabela-relatorio">
+            <thead>
+              <tr>
+                <th className="col-fixa">Mês</th><th className="r">Recebeu</th>
+                {clt ? <><th className="r">13º</th><th className="r">Férias</th><th className="r">1/3</th><th className="r">FGTS</th>{multa && <th className="r">Multa FGTS</th>}</> : <th className="r">Recesso</th>}
+                <th className="r">Total do mês</th>
+              </tr>
+            </thead>
+            <tbody>
+              {linha.meses.map((m) => (
+                <tr key={m.mes} className={m.conta ? '' : 'muted'}>
+                  <td className="col-fixa">{mesCurto(m.mes + '-01')}{!m.conta && <div className="desc-sub">menos de 15 dias: não conta</div>}</td>
+                  <td className="r num" data-soma={m.remuneracao} data-formato="moeda">
+                    {m.estimado ? <span className="muted">{brl(m.remuneracao)}</span> : brl(m.recebido + m.a_pagar)}
+                    <div className="desc-sub">{m.estimado ? 'sem pagamento: base' : m.a_pagar ? `a pagar ${brl(m.a_pagar)}` : ''}</div>
+                  </td>
+                  {clt ? <>
+                    <td className="r num" data-soma={m.decimo} data-formato="moeda">{brl(m.decimo)}</td>
+                    <td className="r num" data-soma={m.ferias} data-formato="moeda">{brl(m.ferias)}</td>
+                    <td className="r num" data-soma={m.terco} data-formato="moeda">{brl(m.terco)}</td>
+                    <td className="r num" data-soma={m.fgts} data-formato="moeda">{brl(m.fgts)}</td>
+                    {multa && <td className="r num" data-soma={m.multa} data-formato="moeda">{brl(m.multa)}</td>}
+                  </> : <td className="r num" data-soma={m.recesso} data-formato="moeda">{brl(m.recesso)}</td>}
+                  <td className="r num" data-soma={m.total} data-formato="moeda"><b>{brl(m.total)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="col-fixa">Total do período</td>
+                <td className="r num">{brl(totalRem)}</td>
+                {clt ? <>
+                  <td className="r num">{brl(a.decimo)}</td><td className="r num">{brl(a.ferias)}</td><td className="r num">{brl(a.terco)}</td><td className="r num">{brl(a.fgts)}</td>
+                  {multa && <td className="r num">{brl(a.multa)}</td>}
+                </> : <td className="r num">{brl(a.recesso)}</td>}
+                <td className="r num"><b>{brl(a.total)}</b></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <p className="muted small">
+        Cada mês trabalhado (15 dias ou mais) gera 1/12 do que a pessoa recebeu por ele{clt ? ' de 13º e de férias, mais 1/3 de férias e 8% de FGTS sobre esses valores' : ' de recesso'}.
+        O salário pago até o dia 10 é do mês anterior. Mês ainda sem pagamento usa a base ({brl(linha.base)}).
+      </p>
+    </Modal>
   );
 }
 
