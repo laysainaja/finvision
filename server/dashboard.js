@@ -6,6 +6,8 @@ import { DENTRO_DO_RESULTADO, SEM_TRANSFERENCIA } from './relatorios.js';
 // Dashboard: indicadores do período, pelo que foi de fato recebido e pago (caixa, data do pagamento).
 // Mesmas definições do Forecast: cliente = cadastro (ou o nome digitado), base recorrente = quem pagou receita
 // recorrente ou nova venda no mês, churn = quem estava na base do mês anterior e não pagou neste.
+// LTV só com receita de cliente que fica: venda avulsa fica de fora.
+const SEM_AVULSA = "COALESCE(l.tipo_receita, '') <> 'avulsa'";
 export const dashboardRouter = express.Router({ mergeParams: true });
 
 const NORM_SQL = (col) => `regexp_replace(translate(lower(trim(${col})), 'áàâãäéèêëíìîïóòôõöúùûüçñ', 'aaaaaeeeeiiiiooooouuuucn'), '\\s+', ' ', 'g')`;
@@ -58,12 +60,13 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
        GROUP BY 1`,
       p,
     ),
-    // Tudo o que cada cliente já pagou, mês a mês (para o LTV: mesmo critério do LTV por cliente, menos transferências).
+    // Tudo o que cada cliente já pagou, mês a mês (para o LTV: mesmo critério do LTV por cliente, menos transferências e
+    // vendas avulsas, que não são de cliente que fica e distorcem o resultado).
     all(
       `SELECT COALESCE('c' || l.contato_id, 'n' || NULLIF(${NORM_SQL('l.contato')}, ''), 'l' || l.id) AS cliente,
          to_char(l.data_pagamento, 'YYYY-MM') AS mes, SUM(l.valor_pago)::bigint AS valor
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id
-       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.data_pagamento <= :ate AND ${SEM_TRANSFERENCIA}
+       WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND l.data_pagamento <= :ate AND ${SEM_TRANSFERENCIA} AND ${SEM_AVULSA}
        GROUP BY 1, 2`,
       p,
     ),
@@ -83,7 +86,8 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
     m.receita += r.valor;
     m.ativos.add(r.cliente);
     if (!venda) continue;
-    m.clientes.add(r.cliente); // cliente ativo no mês: comprou (de qualquer tipo) ou tem cobrança recorrente em aberto
+    // Cliente ativo no mês (para o LTV): pagou nova venda ou recorrente, ou tem cobrança recorrente em aberto. Só avulsa não conta.
+    if (r.tipo_receita !== 'avulsa') m.clientes.add(r.cliente);
     if (r.tipo_receita === 'nova') (m.nova += r.valor, m.novos.add(r.cliente));
     if (r.tipo_receita === 'recorrente') (m.recorrente += r.valor, m.recorrentes.add(r.cliente));
   }
@@ -158,7 +162,8 @@ dashboardRouter.get('/relatorios/dashboard', async (req, res) => {
 
 // ---------- LTV por cliente ----------
 // Todo o histórico de cada cliente: tudo o que ele já pagou (o LTV realizado), há quanto tempo é cliente e se ainda está
-// ativo. Mesmo critério das análises: entra tudo o que foi recebido, menos transferências entre contas.
+// ativo. Mesmo critério das análises: entra tudo o que foi recebido, menos transferências entre contas e vendas avulsas
+// (não são de cliente que fica; quem só comprou avulso não aparece).
 // O nome é o mesmo da Receita por cliente (cadastro, ou o nome digitado), para o clique abrir os mesmos lançamentos.
 const NOME_CLIENTE = `COALESCE(ct.nome, NULLIF(trim(l.contato), ''))`;
 
@@ -167,7 +172,7 @@ dashboardRouter.get('/relatorios/ltv', async (req, res) => {
   const mesAnterior = addMonths(h.slice(0, 8) + '01', -1); // pagou do mês passado para cá = ativo
   const p = { eid: req.eid };
   const base = `FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
-    WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND ${SEM_TRANSFERENCIA} AND ${NOME_CLIENTE} IS NOT NULL`;
+    WHERE l.empresa_id = :eid AND l.tipo = 'receber' AND ${SEM_TRANSFERENCIA} AND ${SEM_AVULSA} AND ${NOME_CLIENTE} IS NOT NULL`;
   const [clientes, abertos, margem] = await Promise.all([
     all(
       `SELECT ${NOME_CLIENTE} AS nome, min(l.data_pagamento) AS desde, max(l.data_pagamento) AS ultimo,

@@ -34,7 +34,7 @@ const INDICADORES: { id: keyof Indicadores; nome: string; f: Formato; como: stri
   { id: 'ticket_total', nome: 'Ticket médio – novos + recorrentes', f: 'moeda', como: '(Nova venda + recorrente) ÷ clientes novos e recorrentes de cada mês.' },
   { id: 'arpu', nome: 'ARPU', f: 'moeda', como: 'Receita média por cliente ativo por mês: toda a receita ÷ clientes que pagaram em cada mês.' },
   { id: 'churn_pct', nome: 'Churn mensal', f: 'pct', como: 'Clientes da base recorrente do mês anterior que não pagaram no mês ÷ base do mês anterior (média do período).' },
-  { id: 'ltv', nome: 'LTV', f: 'moeda', como: 'Média do que cada cliente ativo no período já pagou desde o primeiro recebimento (até o fim do período). Ativo = comprou no mês ou tem cobrança recorrente em aberto; no trimestre, semestre ou ano, todos os que estiveram ativos.' },
+  { id: 'ltv', nome: 'LTV', f: 'moeda', como: 'Média do que cada cliente ativo no período já pagou desde o primeiro recebimento (até o fim do período), sem as vendas avulsas. Ativo = pagou nova venda ou recorrente no mês, ou tem cobrança recorrente em aberto (só avulsa não conta); no trimestre, semestre ou ano, todos os que estiveram ativos.' },
   { id: 'ltv_margem', nome: 'LTV de margem', f: 'moeda', como: 'LTV × margem de contribuição do período.' },
   { id: 'margem_contribuicao_pct', nome: 'Margem de contribuição', f: 'pct', como: '(Receita − custos variáveis − anúncios e impostos sobre anúncios) ÷ receita.' },
   { id: 'margem_lucro_pct', nome: 'Margem de lucro', f: 'pct', como: 'Resultado do mês (como no Forecast: inclui aportes, reserva e empréstimos) ÷ receita.' },

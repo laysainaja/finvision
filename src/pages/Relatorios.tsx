@@ -635,10 +635,10 @@ export function LtvClientes() {
         )}
       </div>
       {detalhe && data && (
-        <DetalheAnalise filtro={{ tipo: 'receber', agrupar: 'contato', nome: detalhe.nome, de: detalhe.desde, ate: data.hoje, regime: 'caixa' }} onClose={() => setDetalhe(null)} />
+        <DetalheAnalise filtro={{ tipo: 'receber', agrupar: 'contato', nome: detalhe.nome, de: detalhe.desde, ate: data.hoje, regime: 'caixa', tipo_receita: 'sem_avulsa' }} onClose={() => setDetalhe(null)} />
       )}
       <p className="muted small" style={{ margin: 0 }}>
-        Total recebido = tudo o que o cliente já pagou (menos transferências entre contas). LTV de margem = total × margem de contribuição da empresa.
+        Total recebido = tudo o que o cliente já pagou, menos vendas avulsas (não são de cliente que fica) e transferências entre contas; quem só comprou avulso não aparece. LTV de margem = total × margem de contribuição da empresa.
         Ativo = pagou do mês passado para cá ou tem cobrança em aberto; perdido = desde o mês seguinte ao último pagamento. Clique no nome para ver os recebimentos.
       </p>
     </>

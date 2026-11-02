@@ -131,6 +131,7 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
   check(typeof req.query.nome === 'string' && req.query.nome, 'Informe a linha da análise.');
   const mes = /^\d{4}-\d{2}$/.test(req.query.mes ?? '') ? req.query.mes : null;
   const tipoReceita = TIPOS_RECEITA_RELATORIO.includes(req.query.tipo_receita) ? req.query.tipo_receita : null;
+  const semAvulsa = req.query.tipo_receita === 'sem_avulsa'; // LTV por cliente: o que entra no LTV
   const data = p.regime === 'caixa' ? 'l.data_pagamento' : 'l.vencimento';
   const valor = p.regime === 'caixa' ? 'l.valor_pago' : 'COALESCE(l.valor_pago, l.valor)';
   res.json(await all(
@@ -140,7 +141,7 @@ relatoriosRouter.get('/relatorios/analise/lancamentos', async (req, res) => {
        LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id
      WHERE l.empresa_id = :eid AND l.tipo = :tipo AND ${data} BETWEEN :de AND :ate AND ${SEM_TRANSFERENCIA} AND ${chave} = :nome
        ${mes ? `AND to_char(${data}, 'YYYY-MM') = :mes` : ''} ${p.contaId ? 'AND l.conta_bancaria_id = :conta' : ''}
-       ${tipoReceita ? `AND ${TIPO_RECEITA_SQL} = :tipo_receita` : ''}
+       ${tipoReceita ? `AND ${TIPO_RECEITA_SQL} = :tipo_receita` : ''} ${semAvulsa ? `AND ${TIPO_RECEITA_SQL} <> 'avulsa'` : ''}
      ORDER BY ${data}, l.id LIMIT 2000`,
     { eid: req.eid, tipo, de: p.de, ate: p.ate, nome: req.query.nome, ...(mes && { mes }), ...(p.contaId && { conta: p.contaId }), ...(tipoReceita && { tipo_receita: tipoReceita }) },
   ));
