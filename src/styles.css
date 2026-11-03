@@ -504,9 +504,15 @@ td > .barra-h-trilho { display: block; min-width: 80px; }
   .sidebar, .topbar, .toolbar .btn, .soma-barra, .seletor-periodo, .btn, .toasts { display: none !important; }
   .app, .main { display: block !important; }
   .content { max-width: none !important; padding: 0 !important; }
-  .card { box-shadow: none !important; break-inside: avoid; }
+  /* O conteúdo segue de uma página para a outra (sem pular um card inteiro e deixar espaço em branco);
+     só peças pequenas não são cortadas ao meio, e o título não fica sozinho no fim da página. */
+  .card { box-shadow: none !important; break-inside: auto; }
+  .kpi, .cartao-extrato, .card-header, .dash-grupo h3, .page-header { break-inside: avoid; }
+  .card-header, h1, h2, h3 { break-after: avoid; }
   .so-impressao { display: block; }
   .table-wrap { overflow: visible !important; max-height: none !important; }
+  .table-wrap.preenche { flex: none !important; min-height: 0 !important; }
+  thead { display: table-header-group; } /* cabeçalho da tabela repete em cada página */
   tr { break-inside: avoid; }
   .kpi a, .dash-como { display: none !important; }
 }
