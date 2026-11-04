@@ -9,7 +9,7 @@ interface ConfigAsaas {
   sincronizado_em: string | null; ultimo_erro: string | null; tem_chave: boolean; pagamentos: boolean;
   webhook_caminho?: string; webhook_token?: string;
 }
-interface ResumoSync { cobrancas: Record<string, number>; movimentos: number; conciliados: number }
+interface ResumoSync { cobrancas: Record<string, number>; movimentos: number }
 
 const ATUALIZAR_A_CADA = 15 * 60 * 1000; // ao abrir a conciliação, atualiza se a última vez foi há mais de 15 min
 
@@ -23,13 +23,10 @@ function haQuanto(iso: string) {
 
 function textoResumo(r: ResumoSync) {
   const c = r.cobrancas;
-  const novas = (c.criada ?? 0) + (c.criada_paga ?? 0);
-  const baixas = (c.baixada ?? 0) + (c.criada_paga ?? 0);
   const partes = [
-    novas && `${novas} cobrança(s) nova(s)`,
-    baixas && `${baixas} recebimento(s) com baixa`,
+    c.criada && `${c.criada} cobrança(s) nova(s) em contas a receber`,
     c.removida && `${c.removida} cobrança(s) apagada(s) no Asaas`,
-    r.movimentos && `${r.movimentos} movimento(s) no extrato (${r.conciliados} já conciliado(s))`,
+    r.movimentos && `${r.movimentos} movimento(s) novo(s) para conciliar`,
   ].filter(Boolean);
   return partes.length ? `Asaas: ${partes.join(', ')}.` : 'Asaas: nada de novo.';
 }

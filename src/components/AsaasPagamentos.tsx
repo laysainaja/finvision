@@ -61,7 +61,11 @@ function situacao(p: PagamentoAsaas) {
     if (p.autorizado === false) return { texto: 'No Asaas: aguardando aprovação com token', classe: '' };
     return { texto: p.status_asaas === 'BANK_PROCESSING' ? 'No Asaas: em processamento' : `No Asaas: agendado para ${p.data_envio ? dataBR(p.data_envio) : '—'}`, classe: '' };
   }
-  if (p.status === 'pago') return { texto: `Pago${p.data_pagamento ? ` em ${dataBR(p.data_pagamento)}` : ''}`, classe: 'entrada' };
+  if (p.status === 'pago') {
+    return p.data_pagamento
+      ? { texto: `Pago em ${dataBR(p.data_pagamento)}`, classe: 'entrada' }
+      : { texto: 'Concluído no Asaas: concilie o movimento no extrato para dar a baixa', classe: '' };
+  }
   if (p.status === 'falhou') return { texto: `Falhou: ${p.erro ?? 'veja no Asaas'}`, classe: 'alerta' };
   return { texto: 'Cancelado no Asaas', classe: 'muted' };
 }

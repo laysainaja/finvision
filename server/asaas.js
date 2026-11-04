@@ -1,10 +1,11 @@
 // Integração com o Asaas. Leitura:
-// - cobranças viram contas a receber; quando pagas, recebem baixa sozinhas e a taxa do Asaas vira uma despesa paga;
-// - as movimentações da conta entram no extrato da conciliação (e as que já têm lançamento saem conciliadas).
+// - cobranças viram contas a receber (em aberto);
+// - as movimentações da conta entram no extrato da conciliação como pendentes.
+// Nada recebe baixa nem é conciliado sozinho: a pessoa concilia cada movimento (é a conciliação que dá a baixa).
 // Roda ao abrir a conciliação, no botão "Atualizar agora" e pelo webhook do Asaas (cobrança criada, paga, apagada...).
 // Pagamentos (só nas contas em que o dono ligou): a conta a pagar é preparada, a pessoa confere e dá o OK, e só então a
 // transferência Pix sobe ao Asaas, sempre agendada, para ficar esperando a aprovação com token lá. Quando o Asaas
-// confirma, o lançamento recebe baixa. O FinVision nunca aprova uma transferência.
+// conclui, o pagamento aparece como concluído e o movimento cai pendente na conciliação. O FinVision nunca aprova.
 // A chave de API de cada conta fica no Vault do Supabase ('asaas_conta_<id>'); só o dono cadastra e ninguém a lê de volta.
 import express from 'express';
 import { timingSafeEqual } from 'node:crypto';
@@ -12,7 +13,6 @@ import { all, get, transaction, hoje } from './db.js';
 import { check, isDate, optId, idParam, addDays, pgArray } from './util.js';
 import { pertence, inserirLancamento } from './api.js';
 import { resolverContato } from './contatos.js';
-import { casarJaLancados } from './conciliacao.js';
 
 export const asaasRouter = express.Router({ mergeParams: true });
 
@@ -95,7 +95,8 @@ async function acharExistente(eid, p, nome) {
   );
 }
 
-/** Cria ou atualiza o lançamento de uma cobrança. O que já foi pago (à mão, por planilha ou antes) não é mexido. */
+/** Cria ou atualiza a conta a receber de uma cobrança, sempre em aberto (a baixa vem da conciliação). O que já foi
+ * pago (à mão, por planilha ou na conciliação) não é mexido. */
 async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
   const eid = cfg.empresa_id;
   const documento = p.invoiceNumber ? `Fatura ${p.invoiceNumber}` : null;
@@ -125,7 +126,6 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
   }
   if (!paga && !ABERTAS.includes(p.status)) return null;
   const valor = centavos(p.value);
-  const dataPagamento = paga ? (p.paymentDate ?? p.clientPaymentDate) : null;
 
   if (atual) {
     if (atual.data_pagamento) {
@@ -134,12 +134,10 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
       return null;
     }
     await all(
-      `UPDATE lancamentos SET asaas_id = :aid, valor = :valor, vencimento = :venc, conta_bancaria_id = COALESCE(conta_bancaria_id, :conta),
-         data_pagamento = :pg, valor_pago = :vp, origem_baixa = :origem WHERE id = :id`,
-      { id: atual.id, aid: p.id, valor, venc: p.dueDate, conta: cfg.conta_bancaria_id, pg: dataPagamento, vp: paga ? valor : null, origem: paga ? 'asaas' : null },
+      `UPDATE lancamentos SET asaas_id = :aid, valor = :valor, vencimento = :venc, conta_bancaria_id = COALESCE(conta_bancaria_id, :conta) WHERE id = :id`,
+      { id: atual.id, aid: p.id, valor, venc: p.dueDate, conta: cfg.conta_bancaria_id },
     );
-    if (paga) await aplicarTarifa(cfg, p, dataPagamento);
-    return paga ? 'baixada' : 'atualizada';
+    return 'atualizada';
   }
 
   const ligado = p.customer
@@ -157,11 +155,9 @@ async function aplicarCobranca(cfg, p, clientes, chave, apagada = false) {
     valor, vencimento: p.dueDate, documento,
     observacao: [descricao, `Asaas: ${tipoCobranca}`].filter(Boolean).join(' · '),
     forma_pagamento: FORMA[p.billingType] ?? null,
-    data_pagamento: dataPagamento, valor_pago: paga ? valor : null, origem_baixa: paga ? 'asaas' : null,
   });
   await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid: p.id, id });
-  if (paga) await aplicarTarifa(cfg, p, dataPagamento);
-  return paga ? 'criada_paga' : 'criada';
+  return 'criada';
 }
 
 // Nome do cliente no Asaas, em maiúsculas como os demais cadastros de cliente (guardado em `clientes` para não repetir a busca).
@@ -174,24 +170,9 @@ async function nomeCliente(chave, id, clientes) {
   return clientes.get(id);
 }
 
-// A taxa do Asaas (valor − valor líquido) vira uma despesa paga no mesmo dia, como sai no extrato.
-async function aplicarTarifa(cfg, p, data) {
-  const taxa = centavos(p.value) - centavos(p.netValue ?? p.value);
-  if (taxa <= 0) return;
-  const aid = `tarifa:${p.id}`;
-  if (await get('SELECT 1 FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid: cfg.empresa_id, aid })) return;
-  const id = await inserirLancamento({
-    empresa_id: cfg.empresa_id, tipo: 'pagar', descricao: 'TARIFA ASAAS', contato: null,
-    categoria_id: cfg.categoria_tarifa_id, conta_bancaria_id: cfg.conta_bancaria_id,
-    valor: taxa, vencimento: data, documento: p.invoiceNumber ? `Fatura ${p.invoiceNumber}` : null,
-    observacao: 'Taxa da cobrança no Asaas', data_pagamento: data, valor_pago: taxa, origem_baixa: 'asaas',
-  });
-  await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid, id });
-}
-
 // ---------- Transferências (pagamentos) ----------
 
-/** Atualiza o pagamento pelo status da transferência no Asaas; concluída = baixa no lançamento (e a taxa, se houver). */
+/** Atualiza o pagamento pelo status da transferência no Asaas. A baixa da conta a pagar vem da conciliação. */
 async function aplicarTransferencia(cfg, t) {
   const pg = await get('SELECT * FROM asaas_pagamentos WHERE transfer_id = :t AND conta_bancaria_id = :c', { t: t.id, c: cfg.conta_bancaria_id });
   if (!pg || pg.status === 'pago') return null;
@@ -201,24 +182,7 @@ async function aplicarTransferencia(cfg, t) {
     'UPDATE asaas_pagamentos SET status = :st, status_asaas = :sa, autorizado = COALESCE(:au, autorizado), erro = :erro WHERE lancamento_id = :l',
     { st: status, sa: t.status ?? null, au: typeof t.authorized === 'boolean' ? t.authorized : null, erro, l: pg.lancamento_id },
   );
-  if (status !== 'pago') return status === pg.status ? null : status;
-  const data = t.effectiveDate ?? t.scheduleDate ?? hoje();
-  await all(
-    `UPDATE lancamentos SET data_pagamento = :d, valor_pago = :v, origem_baixa = 'asaas', conta_bancaria_id = :c
-     WHERE id = :l AND data_pagamento IS NULL`,
-    { d: data, v: t.value !== undefined ? centavos(t.value) : pg.valor, c: cfg.conta_bancaria_id, l: pg.lancamento_id },
-  );
-  const taxa = centavos(t.transferFee ?? 0);
-  const aid = `tarifa-transf:${t.id}`;
-  if (taxa > 0 && !(await get('SELECT 1 FROM lancamentos WHERE empresa_id = :eid AND asaas_id = :aid', { eid: cfg.empresa_id, aid }))) {
-    const id = await inserirLancamento({
-      empresa_id: cfg.empresa_id, tipo: 'pagar', descricao: 'TARIFA ASAAS', contato: null,
-      categoria_id: cfg.categoria_tarifa_id, conta_bancaria_id: cfg.conta_bancaria_id, valor: taxa, vencimento: data, documento: null,
-      observacao: 'Taxa da transferência Pix no Asaas', data_pagamento: data, valor_pago: taxa, origem_baixa: 'asaas',
-    });
-    await all('UPDATE lancamentos SET asaas_id = :aid WHERE id = :id', { aid, id });
-  }
-  return 'pago';
+  return status === pg.status ? null : status;
 }
 
 // ---------- Sincronização ----------
@@ -289,9 +253,8 @@ export async function sincronizar(cfg) {
           valores: pgArray(validos.map((m) => centavos(m.value))), fitids: pgArray(validos.map((m) => `asaas:${m.id}`)),
         },
       ) : [];
-      const conciliados = inseridos.length ? await casarJaLancados(cfg.empresa_id, cfg.conta_bancaria_id, inseridos.map((i) => i.id)) : 0;
       await all('UPDATE asaas_contas SET sincronizado_em = now(), ultimo_erro = NULL WHERE conta_bancaria_id = :c', { c: cfg.conta_bancaria_id });
-      return { cobrancas: contagem, pagamentos, movimentos: inseridos.length, conciliados };
+      return { cobrancas: contagem, pagamentos, movimentos: inseridos.length };
     });
     return resumo;
   } catch (e) {
@@ -384,7 +347,7 @@ const SQL_PAGAMENTOS = `SELECT p.*, l.descricao, l.valor AS valor_lancamento, l.
 // Os pagamentos em andamento e os concluídos nos últimos 30 dias.
 asaasRouter.get('/asaas/pagamentos', async (req, res) => {
   res.json(await all(
-    `${SQL_PAGAMENTOS} WHERE p.empresa_id = :eid AND (p.status <> 'pago' OR l.data_pagamento >= CURRENT_DATE - 30) ORDER BY l.vencimento, p.lancamento_id`,
+    `${SQL_PAGAMENTOS} WHERE p.empresa_id = :eid AND (p.status <> 'pago' OR l.data_pagamento IS NULL OR l.data_pagamento >= CURRENT_DATE - 30) ORDER BY l.vencimento, p.lancamento_id`,
     { eid: req.eid },
   ));
 });
