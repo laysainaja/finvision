@@ -214,6 +214,9 @@ create table if not exists forecast_ajustes (
 alter table extrato_itens add column if not exists ajuste_motivo text check (ajuste_motivo in ('multa', 'juros', 'desconto', 'valor'));
 alter table extrato_itens add column if not exists ajuste_valor bigint; -- banco − lançamento
 
+-- Um movimento do banco conciliado com vários lançamentos (pagamento em conjunto): todos apontam para o item do extrato.
+alter table lancamentos add column if not exists extrato_lote_id bigint references extrato_itens(id) on delete set null;
+
 -- Colaboradores, para a provisão de folha (13º, férias, 1/3, FGTS). O valor da base sai da média do que foi pago à pessoa
 -- (salário + comissões) pelo cadastro ligado; salario_base é usado quando ainda não há pagamentos.
 create table if not exists colaboradores (

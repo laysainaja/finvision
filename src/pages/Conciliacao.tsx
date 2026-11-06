@@ -212,15 +212,15 @@ export function Conciliacao() {
   );
 }
 
-type ModoLinha = 'sugestoes' | 'novo' | 'transferencia' | 'buscar';
+type ModoLinha = 'sugestoes' | 'novo' | 'transferencia' | 'buscar' | 'varios';
 const diaSemana = (iso: string) => {
   const d = new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long' });
   return d.charAt(0).toUpperCase() + d.slice(1);
 };
 
-/** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
 const NOME_MOTIVO: Record<MotivoDiferenca, string> = { multa: 'Multa', juros: 'Juros', desconto: 'Desconto', valor: 'O valor total mudou' };
 
+/** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
 function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const { base, categorias, contas, recarregar } = useEmpresa();
   const acao = useAcao();
@@ -232,6 +232,8 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const [modo, setModo] = useState<ModoLinha>('sugestoes');
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [motivo, setMotivo] = useState<MotivoDiferenca | null>(null);
+  const [varios, setVarios] = useState<Set<number>>(new Set());
+  const [buscaVarios, setBuscaVarios] = useState('');
   const [descricao, setDescricao] = useState(item.descricao ?? '');
   const [categoria, setCategoria] = useState('');
   const [contato, setContato] = useState('');
@@ -248,6 +250,12 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
 
   const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes` : null);
   const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' && q ? `${base}/extrato/${item.id}/sugestoes${qs({ q })}` : null);
+  const abertos = useApi<Sugestao[]>(pendente && modo === 'varios' ? `${base}/extrato/${item.id}/sugestoes?todos=1` : null);
+  const somaVarios = (abertos.data ?? []).filter((l) => varios.has(l.id)).reduce((s, l) => s + l.valor, 0);
+  const faltaVarios = Math.abs(item.valor) - somaVarios;
+  const termoVarios = buscaVarios.trim().toLowerCase();
+  const abertosVisiveis = (abertos.data ?? []).filter((l) => !termoVarios || `${l.descricao} ${l.contato ?? ''}`.toLowerCase().includes(termoVarios) || varios.has(l.id));
+  const alternarVarios = (id: number) => setVarios((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   // Sem sugestão, já abre em "Novo lançamento"; com sugestão forte, ela vem marcada.
   useEffect(() => {
@@ -277,6 +285,11 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const motivosPossiveis: MotivoDiferenca[] = diferenca > 0 ? ['multa', 'juros', 'valor'] : ['desconto', 'valor'];
 
   const conciliar = () => {
+    if (modo === 'varios') {
+      if (varios.size < 2) return toast('Escolha pelo menos dois lançamentos.', true);
+      if (faltaVarios !== 0) return toast('A soma dos lançamentos escolhidos precisa ser igual ao valor do banco.', true);
+      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar-varios`, { lancamento_ids: [...varios] }), `${varios.size} lançamentos conciliados.`);
+    }
     if (modo === 'sugestoes' || modo === 'buscar') {
       if (!escolhido) return toast('Escolha um lançamento para conciliar.', true);
       if (diferenca !== 0 && !motivo) return toast('O valor é diferente: informe o que é a diferença antes de conciliar.', true);
@@ -351,16 +364,20 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
         {item.lancamento_id ? (
           <div className="sugestao forte">
             <div style={{ minWidth: 0 }}>
-              <div className="muted small">Conciliado com</div>
-              <div className="desc-principal">{item.lancamento_descricao}</div>
-              <div className="desc-sub">{item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)}</div>
+              <div className="muted small">Conciliado com{item.lote ? ` ${item.lote.length} lançamentos` : ''}</div>
+              {item.lote ? item.lote.map((m) => (
+                <div key={m.id} className="desc-sub">{m.descricao}{m.contato ? ` · ${m.contato}` : ''} · venc. {dataBR(m.vencimento)} · <span className="num">{brl(m.valor)}</span></div>
+              )) : <>
+                <div className="desc-principal">{item.lancamento_descricao}</div>
+                <div className="desc-sub">{item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)}</div>
+              </>}
               {item.ajuste_motivo && (
                 <div className="desc-sub">
                   {item.ajuste_motivo === 'valor' ? 'O valor total mudou' : NOME_MOTIVO[item.ajuste_motivo]}: {brl(Math.abs(item.ajuste_valor ?? 0))}
                 </div>
               )}
             </div>
-            <span className="num desc-principal">{brl(item.lancamento_valor ?? 0)}</span>
+            <span className="num desc-principal">{brl(item.lote ? Math.abs(item.valor) : item.lancamento_valor ?? 0)}</span>
           </div>
         ) : item.ignorado ? (
           <div className="muted small" style={{ padding: 12 }}>Movimento ignorado: não entra no financeiro.</div>
@@ -371,6 +388,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                 <button className={'tab' + (modo === 'sugestoes' ? ' ativo' : '')} onClick={() => setModo('sugestoes')}>
                   Sugestões{sugestoes.data ? ` (${sugestoes.data.length})` : ''}
                 </button>
+                <button className={'tab' + (modo === 'varios' ? ' ativo' : '')} onClick={() => setModo('varios')}>Vários lançamentos</button>
                 <button className={'tab' + (modo === 'novo' ? ' ativo' : '')} onClick={() => setModo('novo')}>Novo lançamento</button>
                 <button className={'tab' + (modo === 'transferencia' ? ' ativo' : '')} onClick={() => setModo('transferencia')}>Nova transferência</button>
               </div>
@@ -381,6 +399,28 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
               <>
                 <input className="input" style={{ width: '100%' }} placeholder="Buscar lançamento do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
                 {q ? listaEscolha(encontrados.data, 'Nada encontrado com essa busca neste mês.') : <div className="muted small">Digite para buscar.</div>}
+              </>
+            )}
+            {modo === 'varios' && (
+              <>
+                <input className="input" style={{ width: '100%' }} placeholder="Filtrar por descrição ou contato…" value={buscaVarios} onChange={(e) => setBuscaVarios(e.target.value)} />
+                <div className="lista conc-varios">
+                  {abertosVisiveis.map((l) => (
+                    <label key={l.id} className={'sugestao conc-opcao' + (varios.has(l.id) ? ' forte' : '')}>
+                      <input type="checkbox" checked={varios.has(l.id)} onChange={() => alternarVarios(l.id)} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="desc-principal">{l.descricao}</div>
+                        <div className="desc-sub">{l.contato ?? '—'} · venc. {dataBR(l.vencimento)}</div>
+                      </div>
+                      <span className="num desc-principal">{brl(l.valor)}</span>
+                    </label>
+                  ))}
+                  {abertos.data && abertosVisiveis.length === 0 && <div className="muted small">Nenhum lançamento em aberto neste mês.</div>}
+                </div>
+                <div className={'small ' + (varios.size && faltaVarios !== 0 ? 'alerta' : 'muted')}>
+                  {varios.size} escolhido(s): <b className="num">{brl(somaVarios)}</b> · banco <b className="num">{brl(Math.abs(item.valor))}</b>
+                  {faltaVarios === 0 ? ' · valores iguais' : ` · ${faltaVarios > 0 ? 'faltam' : 'sobram'} ${brl(Math.abs(faltaVarios))}`}
+                </div>
               </>
             )}
             {(modo === 'novo' || modo === 'transferencia') && (

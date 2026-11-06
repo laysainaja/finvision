@@ -335,6 +335,7 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
 .conc-diferenca { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 .conc-diferenca legend { padding: 0 4px; font-size: 13px; }
 .conc-diferenca .muted { flex-basis: 100%; }
+.conc-varios { max-height: 320px; overflow: auto; }
 /* Faixa do Asaas na conciliação (ligar a conta, última atualização, atualizar agora). */
 .asaas-faixa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
 .asaas-faixa > span:first-child { margin-right: auto; }

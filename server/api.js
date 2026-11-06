@@ -320,7 +320,7 @@ e.delete('/categorias/:id', async (req, res) => {
 
 const LANC_SELECT = `
   SELECT l.*, ${STATUS_SQL} AS status, c.nome AS categoria_nome, cb.nome AS conta_nome,
-    (SELECT x.id FROM extrato_itens x WHERE x.lancamento_id = l.id) AS extrato_id
+    COALESCE(l.extrato_lote_id, (SELECT x.id FROM extrato_itens x WHERE x.lancamento_id = l.id)) AS extrato_id
   FROM lancamentos l
   LEFT JOIN categorias c ON c.id = l.categoria_id
   LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id`;
@@ -576,6 +576,7 @@ e.put('/lancamentos/:id', async (req, res) => {
 
 e.delete('/lancamentos/:id', async (req, res) => {
   const atual = await buscarLancamento(req.params.id, req.eid);
+  check(!atual.extrato_lote_id, 'Este lançamento foi conciliado em conjunto com outros: use Desfazer na conciliação antes de excluir.', 409);
   // Parcelas/recorrência: "proximos" (este e os seguintes) ou "todos" apagam também os outros do grupo que
   // ainda estão em aberto; os já pagos/recebidos ficam, para não mexer no saldo. ("grupo" = nome antigo de "todos".)
   const escopo = req.query.escopo === 'grupo' ? 'todos' : ['proximos', 'todos'].includes(req.query.escopo) ? req.query.escopo : 'este';
@@ -656,6 +657,7 @@ e.post('/lancamentos/:id/estorno', async (req, res) => {
   const l = await buscarLancamento(req.params.id, req.eid);
   check(l.data_pagamento, 'Este lançamento não está pago.', 409);
   check(!l.transferencia_id, 'Transferência não tem estorno: exclua e lance de novo.');
+  check(!l.extrato_lote_id, 'Este lançamento foi conciliado em conjunto com outros: use Desfazer na conciliação.', 409);
   await transaction(async () => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL, ajuste_motivo = NULL, ajuste_valor = NULL WHERE lancamento_id = :id', { id: l.id });
     // Pagamento parcial: o restante que ainda está em aberto volta para este lançamento.

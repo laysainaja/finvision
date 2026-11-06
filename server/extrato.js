@@ -110,7 +110,7 @@ extratoRouter.get('/movimentacoes', async (req, res) => {
        to_char(l.criado_em AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS cadastro,
        c.nome AS categoria_nome, cb.nome AS conta_nome,
        COALESCE(l.data_pagamento, l.vencimento) AS data,
-       (SELECT x.id FROM extrato_itens x WHERE x.lancamento_id = l.id) AS extrato_id
+       COALESCE(l.extrato_lote_id, (SELECT x.id FROM extrato_itens x WHERE x.lancamento_id = l.id)) AS extrato_id
      FROM lancamentos l
      LEFT JOIN categorias c ON c.id = l.categoria_id
      LEFT JOIN contas_bancarias cb ON cb.id = l.conta_bancaria_id

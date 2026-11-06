@@ -7,7 +7,9 @@ export const conciliacaoRouter = express.Router({ mergeParams: true });
 
 const ITEM_SELECT = `
   SELECT x.*, cb.nome AS conta_nome, l.descricao AS lancamento_descricao, l.contato AS lancamento_contato,
-    l.vencimento AS lancamento_vencimento, l.valor AS lancamento_valor
+    l.vencimento AS lancamento_vencimento, l.valor AS lancamento_valor,
+    (SELECT json_agg(json_build_object('id', m.id, 'descricao', m.descricao, 'contato', m.contato, 'vencimento', m.vencimento, 'valor', COALESCE(m.valor_pago, m.valor)) ORDER BY m.vencimento, m.id)
+     FROM lancamentos m WHERE m.extrato_lote_id = x.id) AS lote
   FROM extrato_itens x
   JOIN contas_bancarias cb ON cb.id = x.conta_bancaria_id
   LEFT JOIN lancamentos l ON l.id = x.lancamento_id`;
@@ -49,7 +51,7 @@ conciliacaoRouter.get('/extrato/dias', async (req, res) => {
     all(
       `SELECT l.id, l.data_pagamento AS data, l.tipo, l.descricao, COALESCE(ct.nome, l.contato) AS contato, c.nome AS categoria,
          CASE WHEN l.tipo = 'receber' THEN l.valor_pago ELSE -l.valor_pago END AS valor, l.transferencia_id IS NOT NULL AS transferencia,
-         EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id) AS conciliado
+         (l.extrato_lote_id IS NOT NULL OR EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)) AS conciliado
        FROM lancamentos l LEFT JOIN categorias c ON c.id = l.categoria_id LEFT JOIN contatos ct ON ct.id = l.contato_id
        WHERE l.empresa_id = :eid AND l.conta_bancaria_id = :conta AND l.data_pagamento BETWEEN :de AND :ate
        ORDER BY l.data_pagamento, l.id`,
@@ -132,7 +134,7 @@ export async function casarJaLancados(eid, contaId, ids = null) {
      WHERE l.empresa_id = :eid
        -- perna de transferência só casa na própria conta (já paga); em aberto não existe transferência
        AND (l.transferencia_id IS NULL OR (l.data_pagamento IS NOT NULL AND l.conta_bancaria_id = :conta))
-       AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
+       AND l.extrato_lote_id IS NULL AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
        AND ((l.data_pagamento IS NOT NULL AND l.conta_bancaria_id = :conta) OR l.data_pagamento IS NULL)
        AND COALESCE(l.data_pagamento, l.vencimento) BETWEEN (:de::date - 5) AND (:ate::date + 5)`,
     { eid, conta: contaId, de, ate },
@@ -170,7 +172,7 @@ const MESMO_MES_SQL = `date_trunc('month', COALESCE(l.data_pagamento, l.vencimen
 const mesDe = (d) => d.slice(0, 7);
 
 // Pontua candidatos por valor (peso maior), proximidade de data e semelhança do texto.
-async function sugestoes(item, eid, q) {
+async function sugestoes(item, eid, q, todos = false) {
   const tipo = item.valor > 0 ? 'receber' : 'pagar';
   const valorItem = Math.abs(item.valor);
   const p = { eid, tipo, conta: item.conta_bancaria_id, hoje: hoje(), data: item.data, q: `%${q}%` };
@@ -180,7 +182,7 @@ async function sugestoes(item, eid, q) {
   const candidatos = await all(
     `SELECT l.*, ${STATUS_SQL} AS status FROM lancamentos l
      WHERE l.empresa_id = :eid AND l.tipo = :tipo
-       AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
+       AND l.extrato_lote_id IS NULL AND NOT EXISTS (SELECT 1 FROM extrato_itens x WHERE x.lancamento_id = l.id)
        -- Sugestões e busca: só o que está em aberto. O que já foi pago é casado sozinho ao importar o extrato
        -- (casarJaLancados), não aparece como sugestão.
        AND l.data_pagamento IS NULL
@@ -188,6 +190,9 @@ async function sugestoes(item, eid, q) {
      LIMIT 500`,
     p,
   );
+
+  // Para escolher vários: tudo o que está em aberto no mês, por vencimento.
+  if (todos) return candidatos.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id).map((l) => ({ ...l, valor_exato: false, dias: Math.abs(diffDays(l.vencimento, item.data)), score: 0 }));
 
   const termos = palavras(item.descricao);
   return candidatos
@@ -209,7 +214,7 @@ async function sugestoes(item, eid, q) {
 
 conciliacaoRouter.get('/extrato/:id/sugestoes', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
-  res.json(await sugestoes(item, req.eid, optText(req.query.q)));
+  res.json(await sugestoes(item, req.eid, optText(req.query.q), req.query.todos === '1'));
 });
 
 // Valor do banco diferente do lançamento: a pessoa diz o que é a diferença antes de conciliar. Banco maior: multa, juros
@@ -298,6 +303,39 @@ conciliacaoRouter.post('/extrato/:id/conciliar', async (req, res) => {
   res.json(await buscarItem(item.id, req.eid));
 });
 
+// Pagamento em conjunto: um movimento do banco quita vários lançamentos em aberto. A soma precisa ser igual à do banco;
+// cada lançamento recebe baixa pelo próprio valor. A escolha é sempre da pessoa (nada entra aqui sozinho).
+conciliacaoRouter.post('/extrato/:id/conciliar-varios', async (req, res) => {
+  const item = await buscarItem(req.params.id, req.eid);
+  check(!item.lancamento_id, 'Este item já está conciliado.', 409);
+  check(!item.ignorado, 'Este item está marcado como ignorado.', 409);
+  const ids = [...new Set((Array.isArray(req.body.lancamento_ids) ? req.body.lancamento_ids : []).map(Number))];
+  check(ids.length >= 2 && ids.every(Number.isInteger), 'Escolha pelo menos dois lançamentos.');
+  const lista = [];
+  for (const id of ids) lista.push(await buscarLancamento(id, req.eid));
+  const tipo = item.valor > 0 ? 'receber' : 'pagar';
+  for (const l of lista) {
+    check(l.tipo === tipo, 'Entradas só conciliam com contas a receber, e saídas com contas a pagar.');
+    check(!l.extrato_id, `"${l.descricao}" já está conciliado com outro item do extrato.`, 409);
+    check(!l.data_pagamento, `"${l.descricao}" já está pago. Escolha só lançamentos em aberto.`, 409);
+    check(!l.transferencia_id, 'Transferência não entra em conciliação em conjunto.');
+    check(mesDe(l.vencimento) === mesDe(item.data), `"${l.descricao}" é de outro mês. A conciliação só aceita lançamentos do mesmo mês do movimento do banco.`);
+  }
+  const soma = lista.reduce((s, l) => s + l.valor, 0);
+  const banco = Math.abs(item.valor);
+  const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
+  check(soma === banco, `A soma dos lançamentos (R$ ${reais(soma)}) precisa ser igual ao valor do banco (R$ ${reais(banco)}).`);
+  await transaction(async () => {
+    await all(
+      `UPDATE lancamentos SET data_pagamento = :data, valor_pago = valor, conta_bancaria_id = :conta, origem_baixa = 'conciliacao', extrato_lote_id = :x
+       WHERE id = ANY(:ids::bigint[]) AND empresa_id = :eid`,
+      { data: item.data, conta: item.conta_bancaria_id, x: item.id, ids: pgArray(ids), eid: req.eid },
+    );
+    await all('UPDATE extrato_itens SET lancamento_id = :lid, ajuste_motivo = NULL, ajuste_valor = NULL WHERE id = :id', { lid: ids[0], id: item.id });
+  });
+  res.json(await buscarItem(item.id, req.eid));
+});
+
 // Para movimentos que só aparecem no banco (tarifas, rendimentos...): cria o lançamento já pago e conciliado.
 conciliacaoRouter.post('/extrato/:id/criar-lancamento', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
@@ -368,6 +406,14 @@ conciliacaoRouter.post('/extrato/:id/desfazer', async (req, res) => {
   }
   await transaction(async () => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL, ajuste_motivo = NULL, ajuste_valor = NULL WHERE id = :id', { id: item.id });
+    // Conciliação em conjunto: todos os lançamentos do lote voltam a ficar em aberto.
+    if (item.lote) {
+      await all(
+        "UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL, extrato_lote_id = NULL WHERE extrato_lote_id = :x AND empresa_id = :eid",
+        { x: item.id, eid: req.eid },
+      );
+      return;
+    }
     // O que a conciliação registrou por causa da diferença de valor volta como estava.
     if (item.ajuste_motivo) {
       const dif = item.ajuste_valor, motivo = item.ajuste_motivo;
