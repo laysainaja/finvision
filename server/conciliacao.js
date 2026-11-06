@@ -212,7 +212,11 @@ conciliacaoRouter.get('/extrato/:id/sugestoes', async (req, res) => {
   res.json(await sugestoes(item, req.eid, optText(req.query.q)));
 });
 
-async function conciliar(item, lancamentoId, eid) {
+// Valor do banco diferente do lançamento: a pessoa diz o que é a diferença antes de conciliar. Banco maior: multa, juros
+// ou o valor total mudou; banco menor: desconto ou o valor total mudou. Fica no extrato para mostrar e para o Desfazer.
+const MOTIVOS_DIFERENCA = { maior: ['multa', 'juros', 'valor'], menor: ['desconto', 'valor'] };
+
+async function conciliar(item, lancamentoId, eid, motivo = null) {
   check(!item.lancamento_id, 'Este item já está conciliado.', 409);
   check(!item.ignorado, 'Este item está marcado como ignorado.', 409);
   const l = await buscarLancamento(lancamentoId, eid);
@@ -221,16 +225,38 @@ async function conciliar(item, lancamentoId, eid) {
   const dataLanc = l.data_pagamento ?? l.vencimento;
   check(mesDe(dataLanc) === mesDe(item.data),
     `Este lançamento é de ${dataLanc.split('-').reverse().join('/')}, outro mês. A conciliação só aceita lançamentos do mesmo mês do movimento do banco.`);
+  const banco = Math.abs(item.valor);
+  const diferenca = banco - (l.valor_pago ?? l.valor);
+  if (diferenca !== 0) {
+    check(!l.transferencia_id, 'Transferência precisa ter o mesmo valor do banco.');
+    check(motivo, 'O valor do banco é diferente do lançamento: informe se é multa, juros, desconto ou se o valor total mudou.');
+    check(MOTIVOS_DIFERENCA[diferenca > 0 ? 'maior' : 'menor'].includes(motivo),
+      diferenca > 0 ? 'O banco tem valor maior que o lançamento: escolha multa, juros ou valor total.' : 'O banco tem valor menor que o lançamento: escolha desconto ou valor total.');
+    check(motivo !== 'valor' || l.valor + diferenca > 0, 'O valor do lançamento precisa ser maior que zero.');
+  }
+  const ajustes = {
+    novo_valor: l.valor + (motivo === 'valor' ? diferenca : 0),
+    juros: l.juros + (motivo === 'juros' ? diferenca : 0),
+    multa: l.multa + (motivo === 'multa' ? diferenca : 0),
+    desconto: l.desconto - (motivo === 'desconto' ? diferenca : 0),
+  };
   if (l.data_pagamento) {
     check(l.conta_bancaria_id === item.conta_bancaria_id, 'Este lançamento foi pago por outra conta bancária.');
+    if (diferenca !== 0) {
+      await all('UPDATE lancamentos SET valor = :novo_valor, valor_pago = :banco, juros = :juros, multa = :multa, desconto = :desconto WHERE id = :id', { ...ajustes, banco, id: l.id });
+    }
   } else {
     // Conciliar um lançamento em aberto dá a baixa com a data e o valor do banco.
     await all(
-      "UPDATE lancamentos SET data_pagamento = :data, valor_pago = :valor, conta_bancaria_id = :conta, origem_baixa = 'conciliacao' WHERE id = :id",
-      { data: item.data, valor: Math.abs(item.valor), conta: item.conta_bancaria_id, id: l.id },
+      `UPDATE lancamentos SET data_pagamento = :data, valor_pago = :banco, conta_bancaria_id = :conta, origem_baixa = 'conciliacao',
+         valor = :novo_valor, juros = :juros, multa = :multa, desconto = :desconto WHERE id = :id`,
+      { ...ajustes, data: item.data, banco, conta: item.conta_bancaria_id, id: l.id },
     );
   }
-  await all('UPDATE extrato_itens SET lancamento_id = :lid WHERE id = :id', { lid: l.id, id: item.id });
+  await all(
+    'UPDATE extrato_itens SET lancamento_id = :lid, ajuste_motivo = :motivo, ajuste_valor = :dif WHERE id = :id',
+    { lid: l.id, motivo: diferenca !== 0 ? motivo : null, dif: diferenca !== 0 ? diferenca : null, id: item.id },
+  );
 }
 
 conciliacaoRouter.post('/extrato/auto-conciliar', async (req, res) => {
@@ -263,7 +289,7 @@ conciliacaoRouter.post('/extrato/auto-conciliar', async (req, res) => {
 conciliacaoRouter.post('/extrato/:id/conciliar', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
   await transaction(async () => {
-    await conciliar(item, req.body.lancamento_id, req.eid);
+    await conciliar(item, req.body.lancamento_id, req.eid, req.body.motivo_diferenca ?? null);
     // Centro de custo escolhido na hora de conciliar (vazio = sem centro de custo).
     if (req.body.centro_custo !== undefined) {
       await all('UPDATE lancamentos SET centro_custo = :cc WHERE id = :id AND empresa_id = :eid', { cc: optText(req.body.centro_custo), id: optId(req.body.lancamento_id), eid: req.eid });
@@ -341,7 +367,15 @@ conciliacaoRouter.post('/extrato/:id/desfazer', async (req, res) => {
     return res.json(await buscarItem(item.id, req.eid));
   }
   await transaction(async () => {
-    await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE id = :id', { id: item.id });
+    await all('UPDATE extrato_itens SET lancamento_id = NULL, ajuste_motivo = NULL, ajuste_valor = NULL WHERE id = :id', { id: item.id });
+    // O que a conciliação registrou por causa da diferença de valor volta como estava.
+    if (item.ajuste_motivo) {
+      const dif = item.ajuste_valor, motivo = item.ajuste_motivo;
+      await all(
+        `UPDATE lancamentos SET valor_pago = valor_pago - :dif, valor = valor - :v, juros = juros - :j, multa = multa - :m, desconto = desconto + :d WHERE id = :id`,
+        { dif, v: motivo === 'valor' ? dif : 0, j: motivo === 'juros' ? dif : 0, m: motivo === 'multa' ? dif : 0, d: motivo === 'desconto' ? dif : 0, id: item.lancamento_id },
+      );
+    }
     // Só desfaz a baixa se foi a própria conciliação que a fez; baixas manuais continuam valendo.
     await all(
       "UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL WHERE id = :id AND origem_baixa = 'conciliacao'",

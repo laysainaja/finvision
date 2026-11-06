@@ -283,7 +283,11 @@ export interface ExtratoItem {
   lancamento_vencimento: string | null;
   lancamento_valor: number | null;
   ignorado: number;
+  ajuste_motivo: MotivoDiferenca | null;
+  ajuste_valor: number | null;
 }
+
+export type MotivoDiferenca = 'multa' | 'juros' | 'desconto' | 'valor';
 
 export interface ResumoTipo {
   vencido: number;

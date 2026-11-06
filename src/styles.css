@@ -331,6 +331,10 @@ tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid
   border: 2px dashed var(--border); border-radius: 12px; padding: 22px; text-align: center; color: var(--text-2); cursor: pointer;
 }
 .drop.ativo, .drop:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+/* Conciliação com valor diferente: o que é a diferença */
+.conc-diferenca { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.conc-diferenca legend { padding: 0 4px; font-size: 13px; }
+.conc-diferenca .muted { flex-basis: 100%; }
 /* Faixa do Asaas na conciliação (ligar a conta, última atualização, atualizar agora). */
 .asaas-faixa { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
 .asaas-faixa > span:first-child { margin-right: auto; }

@@ -3,7 +3,7 @@ import { api, qs, useApi } from '../lib/api';
 import { useEmpresa } from '../lib/empresa';
 import { brl, dataBR } from '../lib/format';
 import { lerExtrato, type ItemExtrato } from '../lib/extrato';
-import type { Contato, ExtratoItem, Sugestao } from '../types';
+import type { Contato, ExtratoItem, MotivoDiferenca, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
 import { ConciliacaoDias } from '../components/ConciliacaoDias';
 import { AsaasConta } from '../components/AsaasConta';
@@ -219,6 +219,8 @@ const diaSemana = (iso: string) => {
 };
 
 /** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
+const NOME_MOTIVO: Record<MotivoDiferenca, string> = { multa: 'Multa', juros: 'Juros', desconto: 'Desconto', valor: 'O valor total mudou' };
+
 function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const { base, categorias, contas, recarregar } = useEmpresa();
   const acao = useAcao();
@@ -229,6 +231,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
 
   const [modo, setModo] = useState<ModoLinha>('sugestoes');
   const [escolhido, setEscolhido] = useState<number | null>(null);
+  const [motivo, setMotivo] = useState<MotivoDiferenca | null>(null);
   const [descricao, setDescricao] = useState(item.descricao ?? '');
   const [categoria, setCategoria] = useState('');
   const [contato, setContato] = useState('');
@@ -265,12 +268,19 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   useEffect(() => {
     const l = [...(sugestoes.data ?? []), ...(encontrados.data ?? [])].find((s) => s.id === escolhido);
     if (l) setCentro(l.centro_custo ?? '');
+    setMotivo(null);
   }, [escolhido]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lançamento escolhido com valor diferente do banco: precisa dizer o que é a diferença antes de conciliar.
+  const selecionado = [...(sugestoes.data ?? []), ...(encontrados.data ?? [])].find((s) => s.id === escolhido);
+  const diferenca = selecionado && (modo === 'sugestoes' || modo === 'buscar') ? Math.abs(item.valor) - (selecionado.valor_pago ?? selecionado.valor) : 0;
+  const motivosPossiveis: MotivoDiferenca[] = diferenca > 0 ? ['multa', 'juros', 'valor'] : ['desconto', 'valor'];
 
   const conciliar = () => {
     if (modo === 'sugestoes' || modo === 'buscar') {
       if (!escolhido) return toast('Escolha um lançamento para conciliar.', true);
-      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: escolhido, centro_custo: centro }), 'Conciliado.');
+      if (diferenca !== 0 && !motivo) return toast('O valor é diferente: informe o que é a diferença antes de conciliar.', true);
+      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar`, { lancamento_id: escolhido, centro_custo: centro, ...(diferenca !== 0 && { motivo_diferenca: motivo }) }), 'Conciliado.');
     }
     if (modo === 'novo') {
       if (!descricao.trim()) return toast('Informe a descrição.', true);
@@ -344,6 +354,11 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
               <div className="muted small">Conciliado com</div>
               <div className="desc-principal">{item.lancamento_descricao}</div>
               <div className="desc-sub">{item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)}</div>
+              {item.ajuste_motivo && (
+                <div className="desc-sub">
+                  {item.ajuste_motivo === 'valor' ? 'O valor total mudou' : NOME_MOTIVO[item.ajuste_motivo]}: {brl(Math.abs(item.ajuste_valor ?? 0))}
+                </div>
+              )}
             </div>
             <span className="num desc-principal">{brl(item.lancamento_valor ?? 0)}</span>
           </div>
@@ -397,6 +412,20 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                   </Field>
                 )}
               </div>
+            )}
+            {diferenca !== 0 && selecionado && (
+              <fieldset className="conc-diferenca">
+                <legend>
+                  O banco tem <b className="num">{brl(Math.abs(item.valor))}</b> e o lançamento <b className="num">{brl(selecionado.valor_pago ?? selecionado.valor)}</b>.
+                  {' '}O que é a diferença de <b className="num">{brl(Math.abs(diferenca))}</b>?
+                </legend>
+                {motivosPossiveis.map((m) => (
+                  <label key={m} className="check">
+                    <input type="radio" name={`motivo-${item.id}`} checked={motivo === m} onChange={() => setMotivo(m)} /> {NOME_MOTIVO[m]}
+                  </label>
+                ))}
+                {motivo === 'valor' && <div className="muted small">O lançamento passa a ser de {brl(Math.abs(item.valor))}.</div>}
+              </fieldset>
             )}
             {(modo === 'sugestoes' || modo === 'buscar') && escolhido && (
               <Field label="Centro de custo do lançamento escolhido">

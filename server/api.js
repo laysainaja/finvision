@@ -657,7 +657,7 @@ e.post('/lancamentos/:id/estorno', async (req, res) => {
   check(l.data_pagamento, 'Este lançamento não está pago.', 409);
   check(!l.transferencia_id, 'Transferência não tem estorno: exclua e lance de novo.');
   await transaction(async () => {
-    await all('UPDATE extrato_itens SET lancamento_id = NULL WHERE lancamento_id = :id', { id: l.id });
+    await all('UPDATE extrato_itens SET lancamento_id = NULL, ajuste_motivo = NULL, ajuste_valor = NULL WHERE lancamento_id = :id', { id: l.id });
     // Pagamento parcial: o restante que ainda está em aberto volta para este lançamento.
     const restante = await get('DELETE FROM lancamentos WHERE restante_de = :id AND data_pagamento IS NULL RETURNING valor', { id: l.id });
     await all(
