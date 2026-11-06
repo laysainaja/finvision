@@ -210,8 +210,10 @@ create table if not exists forecast_ajustes (
   primary key (empresa_id, mes, campo)
 );
 
--- Conciliação com valor diferente do lançamento: o que é a diferença (multa, juros, desconto ou o valor total mudou).
-alter table extrato_itens add column if not exists ajuste_motivo text check (ajuste_motivo in ('multa', 'juros', 'desconto', 'valor'));
+-- Conciliação com valor diferente do lançamento: o que é a diferença (multa, juros, desconto, pagamento parcial ou o valor total mudou).
+alter table extrato_itens add column if not exists ajuste_motivo text;
+alter table extrato_itens drop constraint if exists extrato_itens_ajuste_motivo_check;
+alter table extrato_itens add constraint extrato_itens_ajuste_motivo_check check (ajuste_motivo in ('multa', 'juros', 'desconto', 'parcial', 'valor'));
 alter table extrato_itens add column if not exists ajuste_valor bigint; -- banco − lançamento
 
 -- Um movimento do banco conciliado com vários lançamentos (pagamento em conjunto): todos apontam para o item do extrato.

@@ -192,7 +192,7 @@ async function sugestoes(item, eid, q, todos = false) {
   );
 
   // Para escolher vários: tudo o que está em aberto no mês, por vencimento.
-  if (todos) return candidatos.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id).map((l) => ({ ...l, valor_exato: false, dias: Math.abs(diffDays(l.vencimento, item.data)), score: 0 }));
+  if (todos) return candidatos.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id).map((l) => ({ ...l, valor_exato: l.valor === valorItem, dias: Math.abs(diffDays(l.vencimento, item.data)), score: 0 }));
 
   const termos = palavras(item.descricao);
   return candidatos
@@ -218,8 +218,9 @@ conciliacaoRouter.get('/extrato/:id/sugestoes', async (req, res) => {
 });
 
 // Valor do banco diferente do lançamento: a pessoa diz o que é a diferença antes de conciliar. Banco maior: multa, juros
-// ou o valor total mudou; banco menor: desconto ou o valor total mudou. Fica no extrato para mostrar e para o Desfazer.
-const MOTIVOS_DIFERENCA = { maior: ['multa', 'juros', 'valor'], menor: ['desconto', 'valor'] };
+// ou o valor total mudou; banco menor: desconto, pagamento parcial (abate do lançamento e o restante continua em aberto,
+// como numa previsão de anúncios) ou o valor total mudou. Fica no extrato para mostrar e para o Desfazer.
+const MOTIVOS_DIFERENCA = { maior: ['multa', 'juros', 'valor'], menor: ['parcial', 'desconto', 'valor'] };
 
 async function conciliar(item, lancamentoId, eid, motivo = null) {
   check(!item.lancamento_id, 'Este item já está conciliado.', 409);
@@ -236,11 +237,12 @@ async function conciliar(item, lancamentoId, eid, motivo = null) {
     check(!l.transferencia_id, 'Transferência precisa ter o mesmo valor do banco.');
     check(motivo, 'O valor do banco é diferente do lançamento: informe se é multa, juros, desconto ou se o valor total mudou.');
     check(MOTIVOS_DIFERENCA[diferenca > 0 ? 'maior' : 'menor'].includes(motivo),
-      diferenca > 0 ? 'O banco tem valor maior que o lançamento: escolha multa, juros ou valor total.' : 'O banco tem valor menor que o lançamento: escolha desconto ou valor total.');
-    check(motivo !== 'valor' || l.valor + diferenca > 0, 'O valor do lançamento precisa ser maior que zero.');
+      diferenca > 0 ? 'O banco tem valor maior que o lançamento: escolha multa, juros ou valor total.' : 'O banco tem valor menor que o lançamento: escolha pagamento parcial, desconto ou valor total.');
+    check(motivo !== 'parcial' || !l.data_pagamento, 'Pagamento parcial só vale para lançamento em aberto.');
+    check(!['valor', 'parcial'].includes(motivo) || l.valor + diferenca > 0, 'O valor do lançamento precisa ser maior que zero.');
   }
   const ajustes = {
-    novo_valor: l.valor + (motivo === 'valor' ? diferenca : 0),
+    novo_valor: l.valor + (motivo === 'valor' || motivo === 'parcial' ? diferenca : 0),
     juros: l.juros + (motivo === 'juros' ? diferenca : 0),
     multa: l.multa + (motivo === 'multa' ? diferenca : 0),
     desconto: l.desconto - (motivo === 'desconto' ? diferenca : 0),
@@ -257,6 +259,14 @@ async function conciliar(item, lancamentoId, eid, motivo = null) {
          valor = :novo_valor, juros = :juros, multa = :multa, desconto = :desconto WHERE id = :id`,
       { ...ajustes, data: item.data, banco, conta: item.conta_bancaria_id, id: l.id },
     );
+  }
+  if (diferenca !== 0 && motivo === 'parcial') {
+    await inserirLancamento({
+      empresa_id: eid, tipo: l.tipo, descricao: l.descricao, contato: l.contato, contato_id: l.contato_id, tipo_receita: l.tipo_receita,
+      categoria_id: l.categoria_id, conta_bancaria_id: l.conta_bancaria_id, valor: -diferenca, vencimento: l.vencimento, documento: l.documento,
+      observacao: [`Restante do pagamento parcial de ${item.data.split('-').reverse().join('/')}`, l.observacao].filter(Boolean).join(' — '),
+      grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id, centro_custo: l.centro_custo, forma_pagamento: l.forma_pagamento,
+    });
   }
   await all(
     'UPDATE extrato_itens SET lancamento_id = :lid, ajuste_motivo = :motivo, ajuste_valor = :dif WHERE id = :id',
@@ -417,9 +427,15 @@ conciliacaoRouter.post('/extrato/:id/desfazer', async (req, res) => {
     // O que a conciliação registrou por causa da diferença de valor volta como estava.
     if (item.ajuste_motivo) {
       const dif = item.ajuste_valor, motivo = item.ajuste_motivo;
+      if (motivo === 'parcial') {
+        // O restante volta para o lançamento; se já foi pago, precisa ser desfeito antes.
+        const r = await get('SELECT id, data_pagamento FROM lancamentos WHERE restante_de = :id ORDER BY id LIMIT 1', { id: item.lancamento_id });
+        check(!r?.data_pagamento, 'O restante deste pagamento parcial já foi pago: desfaça o pagamento do restante antes.', 409);
+        if (r) await all('DELETE FROM lancamentos WHERE id = :id', { id: r.id });
+      }
       await all(
         `UPDATE lancamentos SET valor_pago = valor_pago - :dif, valor = valor - :v, juros = juros - :j, multa = multa - :m, desconto = desconto + :d WHERE id = :id`,
-        { dif, v: motivo === 'valor' ? dif : 0, j: motivo === 'juros' ? dif : 0, m: motivo === 'multa' ? dif : 0, d: motivo === 'desconto' ? dif : 0, id: item.lancamento_id },
+        { dif, v: motivo === 'valor' || motivo === 'parcial' ? dif : 0, j: motivo === 'juros' ? dif : 0, m: motivo === 'multa' ? dif : 0, d: motivo === 'desconto' ? dif : 0, id: item.lancamento_id },
       );
     }
     // Só desfaz a baixa se foi a própria conciliação que a fez; baixas manuais continuam valendo.

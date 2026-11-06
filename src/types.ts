@@ -289,7 +289,7 @@ export interface ExtratoItem {
   lote: { id: number; descricao: string; contato: string | null; vencimento: string; valor: number }[] | null;
 }
 
-export type MotivoDiferenca = 'multa' | 'juros' | 'desconto' | 'valor';
+export type MotivoDiferenca = 'multa' | 'juros' | 'desconto' | 'parcial' | 'valor';
 
 export interface ResumoTipo {
   vencido: number;

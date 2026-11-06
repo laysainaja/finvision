@@ -7,6 +7,7 @@ import type { Contato, ExtratoItem, MotivoDiferenca, Sugestao } from '../types';
 import { Field, Icon, Modal, StatusBadge, useAcao, useToast } from '../components/ui';
 import { ConciliacaoDias } from '../components/ConciliacaoDias';
 import { AsaasConta } from '../components/AsaasConta';
+import { LancamentoForm } from '../components/LancamentoForms';
 
 type Aba = 'pendente' | 'conciliado' | 'ignorado' | 'todos';
 const POR_VEZ = 15; // linhas por vez (cada uma busca as próprias sugestões)
@@ -218,7 +219,7 @@ const diaSemana = (iso: string) => {
   return d.charAt(0).toUpperCase() + d.slice(1);
 };
 
-const NOME_MOTIVO: Record<MotivoDiferenca, string> = { multa: 'Multa', juros: 'Juros', desconto: 'Desconto', valor: 'O valor total mudou' };
+const NOME_MOTIVO: Record<MotivoDiferenca, string> = { multa: 'Multa', juros: 'Juros', desconto: 'Desconto', parcial: 'Pagamento parcial (abater deste lançamento)', valor: 'O valor total mudou' };
 
 /** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
 function LinhaConciliacao({ item }: { item: ExtratoItem }) {
@@ -232,6 +233,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const [modo, setModo] = useState<ModoLinha>('sugestoes');
   const [escolhido, setEscolhido] = useState<number | null>(null);
   const [motivo, setMotivo] = useState<MotivoDiferenca | null>(null);
+  const [editando, setEditando] = useState<Sugestao | null>(null);
   const [varios, setVarios] = useState<Set<number>>(new Set());
   const [buscaVarios, setBuscaVarios] = useState('');
   const [descricao, setDescricao] = useState(item.descricao ?? '');
@@ -249,7 +251,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   }, [busca]);
 
   const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes` : null);
-  const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' && q ? `${base}/extrato/${item.id}/sugestoes${qs({ q })}` : null);
+  const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' ? `${base}/extrato/${item.id}/sugestoes${q ? qs({ q }) : '?todos=1'}` : null);
   const abertos = useApi<Sugestao[]>(pendente && modo === 'varios' ? `${base}/extrato/${item.id}/sugestoes?todos=1` : null);
   const somaVarios = (abertos.data ?? []).filter((l) => varios.has(l.id)).reduce((s, l) => s + l.valor, 0);
   const faltaVarios = Math.abs(item.valor) - somaVarios;
@@ -282,7 +284,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   // Lançamento escolhido com valor diferente do banco: precisa dizer o que é a diferença antes de conciliar.
   const selecionado = [...(sugestoes.data ?? []), ...(encontrados.data ?? [])].find((s) => s.id === escolhido);
   const diferenca = selecionado && (modo === 'sugestoes' || modo === 'buscar') ? Math.abs(item.valor) - (selecionado.valor_pago ?? selecionado.valor) : 0;
-  const motivosPossiveis: MotivoDiferenca[] = diferenca > 0 ? ['multa', 'juros', 'valor'] : ['desconto', 'valor'];
+  const motivosPossiveis: MotivoDiferenca[] = diferenca > 0 ? ['multa', 'juros', 'valor'] : ['parcial', 'desconto', 'valor'];
 
   const conciliar = () => {
     if (modo === 'varios') {
@@ -322,6 +324,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
             </div>
           </div>
           <span className="num desc-principal">{brl(s.valor_pago ?? s.valor)}</span>
+          <button className="btn btn-sm btn-ghost" title="Editar este lançamento" aria-label="Editar" onClick={(e) => (e.preventDefault(), setEditando(s))}><Icon name="editar" /></button>
         </label>
       ))}
       {lista && lista.length === 0 && <div className="muted small">{vazio}</div>}
@@ -373,7 +376,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
               </>}
               {item.ajuste_motivo && (
                 <div className="desc-sub">
-                  {item.ajuste_motivo === 'valor' ? 'O valor total mudou' : NOME_MOTIVO[item.ajuste_motivo]}: {brl(Math.abs(item.ajuste_valor ?? 0))}
+                  {item.ajuste_motivo === 'parcial' ? 'Pagamento parcial, restante em aberto' : NOME_MOTIVO[item.ajuste_motivo]}: {brl(Math.abs(item.ajuste_valor ?? 0))}
                 </div>
               )}
             </div>
@@ -397,8 +400,8 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
             {modo === 'sugestoes' && listaEscolha(sugestoes.data, 'Nenhum lançamento deste mês com valor e data parecidos. Use Novo lançamento, Nova transferência ou Buscar.')}
             {modo === 'buscar' && (
               <>
-                <input className="input" style={{ width: '100%' }} placeholder="Buscar lançamento do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
-                {q ? listaEscolha(encontrados.data, 'Nada encontrado com essa busca neste mês.') : <div className="muted small">Digite para buscar.</div>}
+                <input className="input" style={{ width: '100%' }} placeholder="Filtrar os lançamentos do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
+                {listaEscolha(encontrados.data, q ? 'Nada encontrado com essa busca neste mês.' : 'Nenhum lançamento em aberto neste mês.')}
               </>
             )}
             {modo === 'varios' && (
@@ -465,6 +468,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
                   </label>
                 ))}
                 {motivo === 'valor' && <div className="muted small">O lançamento passa a ser de {brl(Math.abs(item.valor))}.</div>}
+                {motivo === 'parcial' && <div className="muted small">Baixa de {brl(Math.abs(item.valor))}; {brl(Math.abs(diferenca))} continuam em aberto, com o mesmo vencimento.</div>}
               </fieldset>
             )}
             {(modo === 'sugestoes' || modo === 'buscar') && escolhido && (
@@ -476,6 +480,10 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
           </>
         )}
       </div>
+      {editando && (
+        <LancamentoForm tipo={editando.tipo} lancamento={editando} onClose={() => setEditando(null)}
+          onSaved={() => { setEditando(null); sugestoes.recarregar(); encontrados.recarregar(); setMotivo(null); recarregar(); }} />
+      )}
     </div>
   );
 }
