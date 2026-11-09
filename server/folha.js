@@ -5,6 +5,7 @@
 // Base = média mensal do que foi pago à pessoa nos últimos 12 meses (salário + comissões, como manda a lei para 13º e
 // férias), pelo cadastro de cliente/fornecedor ligado; sem pagamentos, vale o salário base informado. O primeiro salário
 // (proporcional aos dias do mês da admissão, pago até o dia 10 do mês seguinte) fica fora da média.
+// Os lançamentos costumam ser o líquido; o mês com o bruto do holerite informado usa esse bruto, na média e no acumulado.
 // Mês conta para 13º e férias quando a pessoa trabalhou 15 dias ou mais nele. O acumulado é a soma mês a mês: cada
 // mês trabalhado gera 1/12 do que a pessoa recebeu por ele (o pagamento até o dia 10 é do mês anterior); mês ainda sem
 // pagamento usa a base. INSS patronal não entra: no Simples
@@ -75,6 +76,23 @@ folhaRouter.delete('/colaboradores/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Bruto do holerite de um mês de competência. valor: null apaga e o mês volta a usar o lançamento.
+folhaRouter.put('/colaboradores/:id/brutos/:mes', async (req, res) => {
+  const id = idParam(req.params.id);
+  const { mes } = req.params;
+  const valor = req.body?.valor;
+  check(/^\d{4}-(0[1-9]|1[0-2])$/.test(mes), 'Mês inválido.');
+  check(valor === null || (isCents(valor) && valor >= 0), 'Valor inválido.');
+  check(await get('SELECT 1 FROM colaboradores WHERE id = :id AND empresa_id = :eid', { id, eid: req.eid }), 'Colaborador não encontrado.', 404);
+  if (valor === null) await all('DELETE FROM colaborador_brutos WHERE colaborador_id = :id AND mes = :mes', { id, mes });
+  else await all(
+    `INSERT INTO colaborador_brutos (colaborador_id, mes, valor) VALUES (:id, :mes, :valor)
+     ON CONFLICT (colaborador_id, mes) DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = now()`,
+    { id, mes, valor },
+  );
+  res.json({ ok: true });
+});
+
 // ---------- Cálculo ----------
 
 const ultimoDia = (ano, mes) => new Date(Date.UTC(ano, mes, 0)).getUTCDate(); // mes 1–12
@@ -114,21 +132,27 @@ folhaRouter.get('/relatorios/provisao-folha', async (req, res) => {
   const desde = addMonths(ref, -12);
   const colaboradores = [];
   for (const c of lista) {
-    // Média do que foi pago (salário + comissões) nos últimos 12 meses, pelos meses em que houve pagamento.
+    const brutos = new Map((await all('SELECT mes, valor FROM colaborador_brutos WHERE colaborador_id = :id', { id: c.id })).map((b) => [b.mes, Number(b.valor)]));
+    // Média mensal de salário + comissões nos últimos 12 meses; o mês com bruto informado entra pelo bruto.
     const primeiro = c.admissao ? addDays(addMonths(c.admissao.slice(0, 8) + '01', 1), 9) : null; // dia 10 do mês seguinte
     const inicioMedia = primeiro && primeiro > desde ? primeiro : desde;
-    const pago = c.contato_id ? await get(
-      `SELECT COALESCE(SUM(l.valor_pago), 0)::bigint AS total, COUNT(DISTINCT to_char(l.data_pagamento, 'YYYY-MM'))::int AS meses
+    const pagosMedia = c.contato_id ? await all(
+      `SELECT l.data_pagamento AS data, l.valor_pago AS valor
        FROM lancamentos l LEFT JOIN categorias cat ON cat.id = l.categoria_id
        WHERE l.empresa_id = :eid AND l.tipo = 'pagar' AND l.contato_id = :ct AND l.data_pagamento > :desde AND l.data_pagamento <= :ref
          AND COALESCE(cat.nome, '') ~* :cats`,
       { eid: req.eid, ct: c.contato_id, desde: inicioMedia, ref, cats: CATEGORIAS_SALARIO },
-    ) : { total: 0, meses: 0 };
-    const media = pago.meses ? Math.round(pago.total / pago.meses) : null;
+    ) : [];
+    const mesesMedia = new Map();
+    for (const p of pagosMedia) mesesMedia.set(competencia(p.data), (mesesMedia.get(competencia(p.data)) ?? 0) + Number(p.valor));
+    for (const [mes, valor] of brutos) if (mesesMedia.has(mes) || (mes > competencia(inicioMedia) && mes <= competencia(ref))) mesesMedia.set(mes, valor);
+    const totalMedia = [...mesesMedia.values()].reduce((s, v) => s + v, 0);
+    const media = mesesMedia.size ? Math.round(totalMedia / mesesMedia.size) : null;
     const base = media ?? c.salario_base ?? 0;
     const item = {
       id: c.id, nome: c.nome, vinculo: c.vinculo, admissao: c.admissao, ferias_desde: c.ferias_desde, salario_base: c.salario_base,
-      media, meses_media: pago.meses, base, base_origem: media !== null ? 'media' : c.salario_base !== null ? 'salario' : null,
+      media, meses_media: mesesMedia.size, meses_bruto: [...mesesMedia.keys()].filter((m) => brutos.has(m)).length,
+      base, base_origem: media !== null ? 'media' : c.salario_base !== null ? 'salario' : null,
       mensal: { decimo: 0, ferias: 0, terco: 0, recesso: 0, fgts: 0, multa: 0, total: 0 },
       acumulado: { decimo: 0, meses_decimo: 0, ferias: 0, terco: 0, recesso: 0, meses_ferias: 0, ferias_vencidas: false, fgts: 0, multa: 0, total: 0 },
     };
@@ -171,9 +195,10 @@ folhaRouter.get('/relatorios/provisao-folha', async (req, res) => {
         const ate = [fimDoMes(mes), ref, c.demissao ?? '9999-12-31'].sort()[0];
         const conta = mesesTrabalhados(de, ate) === 1;
         const pg = porMes.get(mes) ?? { recebido: 0, a_pagar: 0 };
-        const estimado = pg.recebido + pg.a_pagar === 0;
-        const rem = estimado ? base : pg.recebido + pg.a_pagar;
-        const linha = { mes, recebido: pg.recebido, a_pagar: pg.a_pagar, estimado, remuneracao: rem, conta, decimo: 0, ferias: 0, terco: 0, recesso: 0, fgts: 0, multa: 0, total: 0 };
+        const bruto = brutos.get(mes) ?? null;
+        const estimado = bruto === null && pg.recebido + pg.a_pagar === 0;
+        const rem = bruto ?? (estimado ? base : pg.recebido + pg.a_pagar);
+        const linha = { mes, recebido: pg.recebido, a_pagar: pg.a_pagar, bruto, estimado, remuneracao: rem, conta, decimo: 0, ferias: 0, terco: 0, recesso: 0, fgts: 0, multa: 0, total: 0 };
         if (conta) {
           const noPeriodoFerias = mes >= mesDe(inicioFerias);
           if (c.vinculo === 'clt') {

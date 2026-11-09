@@ -15,13 +15,15 @@ interface Colaborador {
   admissao: string | null; demissao: string | null; ferias_desde: string | null; observacao: string | null;
 }
 interface Valores { decimo: number; ferias: number; terco: number; recesso: number; fgts: number; multa: number; total: number }
-interface MesProvisao extends Valores { mes: string; recebido: number; a_pagar: number; estimado: boolean; remuneracao: number; conta: boolean }
+interface MesProvisao extends Valores { mes: string; recebido: number; a_pagar: number; bruto: number | null; estimado: boolean; remuneracao: number; conta: boolean }
 interface LinhaProvisao {
   id: number; nome: string; vinculo: Vinculo; admissao: string | null; ferias_desde: string | null; salario_base: number | null;
-  media: number | null; meses_media: number; base: number; base_origem: 'media' | 'salario' | null;
+  media: number | null; meses_media: number; meses_bruto: number; base: number; base_origem: 'media' | 'salario' | null;
   mensal: Valores; acumulado: Valores & { meses_decimo: number; meses_ferias: number; ferias_vencidas: boolean }; meses: MesProvisao[];
 }
 interface RelProvisao { ref: string; multa: boolean; colaboradores: LinhaProvisao[]; totais: { mensal: number; decimo: number; ferias: number; recesso: number; fgts: number; acumulado: number } }
+
+const centavos = (s: string) => (s.trim() ? Math.round(Number(s.replace(/\./g, '').replace(',', '.')) * 100) : null);
 
 /** Provisão de folha: quanto separar por mês para 13º, férias + 1/3 e FGTS, e o que já está acumulado. */
 export function ProvisaoFolha() {
@@ -84,7 +86,7 @@ export function ProvisaoFolha() {
                       </div>
                     </td>
                     <td className="r num" title={c.base_origem === 'media' ? `Média de ${c.meses_media} mês(es) pagos (salário + comissões)` : 'Salário base informado'}>
-                      {brl(c.base)}<div className="desc-sub">{c.base_origem === 'media' ? `média de ${c.meses_media} mês(es)` : c.base_origem === 'salario' ? 'salário informado' : 'sem valor'}</div>
+                      {brl(c.base)}<div className="desc-sub">{c.base_origem === 'media' ? `média de ${c.meses_media} mês(es)${c.meses_bruto ? ` · ${c.meses_bruto} pelo holerite` : ''}` : c.base_origem === 'salario' ? 'salário informado' : 'sem valor'}</div>
                     </td>
                     <td className="r num">{brl(c.mensal.decimo)}<div className="desc-sub">{brl(c.acumulado.decimo)} ({c.acumulado.meses_decimo}/12)</div></td>
                     <td className="r num">{brl(c.mensal.ferias)}<div className="desc-sub">{brl(c.acumulado.ferias)} ({c.acumulado.meses_ferias}/12)</div></td>
@@ -115,28 +117,49 @@ export function ProvisaoFolha() {
         CLT: 13º = base ÷ 12, férias = base ÷ 12, 1/3 de férias = base ÷ 36, FGTS = 8% sobre os três. Estágio: só o recesso remunerado (30 dias por ano) = base ÷ 12.
         PJ e sócios não geram provisão. A base é a média do que foi pago à pessoa nos últimos 12 meses (salário + comissões), pelo cadastro ligado; sem pagamentos, vale o salário informado.
         Conta o mês em que a pessoa trabalhou 15 dias ou mais. O acumulado soma mês a mês 1/12 do que a pessoa recebeu por cada mês (o pagamento até o dia 10 é do mês anterior; mês ainda sem pagamento usa a base).
-        O INSS patronal não entra (no Simples, anexos III e V, já está no DAS). Clique no nome para ver o período inteiro, mês a mês.
+        O INSS patronal não entra (no Simples, anexos III e V, já está no DAS). Clique no nome para ver o período inteiro, mês a mês, e informar o bruto de cada holerite: o mês com bruto informado é calculado por ele, sem mudar os lançamentos.
       </p>
       {detalhe !== null && data?.colaboradores.find((c) => c.id === detalhe) && (
         <DetalheMesAMes linha={data.colaboradores.find((c) => c.id === detalhe)!} multa={data.multa} empresa={empresa?.nome ?? ''}
-          onClose={() => setDetalhe(null)} onEditar={() => (setEditar(cadastro.data?.find((x) => x.id === detalhe) ?? null), setDetalhe(null))} />
+          onClose={() => setDetalhe(null)} onBruto={recarregar} onEditar={() => (setEditar(cadastro.data?.find((x) => x.id === detalhe) ?? null), setDetalhe(null))} />
       )}
       {editar && <FormColaborador colaborador={editar === 'novo' ? undefined : editar} onClose={() => setEditar(null)} onSalvo={salvo} />}
     </>
   );
 }
 
+/** Bruto do holerite de um mês: salva ao sair do campo; vazio volta a usar o lançamento. */
+function CampoBruto({ colaborador, mes, valor, onSalvo }: { colaborador: number; mes: string; valor: number | null; onSalvo: () => void }) {
+  const { base } = useEmpresa();
+  const acao = useAcao();
+  const inicial = valor === null ? '' : (valor / 100).toFixed(2).replace('.', ',');
+  const [texto, setTexto] = useState(inicial);
+  const salvar = async () => {
+    const novo = centavos(texto);
+    if (novo !== null && (!Number.isFinite(novo) || novo < 0)) { setTexto(inicial); return; }
+    if (novo === valor) return;
+    const ok = await acao(() => api.put(`${base}/colaboradores/${colaborador}/brutos/${mes}`, { valor: novo }), 'Bruto do holerite salvo.');
+    if (ok) onSalvo(); else setTexto(inicial);
+  };
+  return (
+    <input className="input num" style={{ width: 110, textAlign: 'right' }} inputMode="decimal" placeholder="—" aria-label={`Bruto do holerite de ${mesCurto(mes + '-01')}`}
+      value={texto} onChange={(e) => setTexto(e.target.value)} onBlur={salvar} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+  );
+}
+
 /** Todo o período do colaborador: quanto recebeu por mês e quanto aquele mês gerou de 13º, férias, 1/3 e FGTS. */
-function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: LinhaProvisao; multa: boolean; empresa: string; onClose: () => void; onEditar: () => void }) {
+function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar, onBruto }: { linha: LinhaProvisao; multa: boolean; empresa: string; onClose: () => void; onEditar: () => void; onBruto: () => void }) {
   const clt = linha.vinculo === 'clt';
   const a = linha.acumulado;
-  const totalRem = linha.meses.reduce((s, m) => s + m.remuneracao, 0);
+  const lancado = (m: MesProvisao) => (m.estimado ? m.remuneracao : m.recebido + m.a_pagar);
+  const totalLancado = linha.meses.reduce((s, m) => s + lancado(m), 0);
+  const totalBruto = linha.meses.reduce((s, m) => s + (m.bruto ?? 0), 0);
   const exportar = () => exportarCSV(`Provisão de folha ${linha.nome}`,
-    clt ? ['Mês', 'Recebido', 'A pagar', 'Conta?', '13º', 'Férias', '1/3', 'FGTS', ...(multa ? ['Multa FGTS'] : []), 'Total']
-      : ['Mês', 'Recebido', 'A pagar', 'Conta?', 'Recesso', 'Total'],
-    [...linha.meses.map((m) => [mesCurto(m.mes + '-01'), m.recebido, m.a_pagar, m.conta ? 'sim' : 'não',
+    clt ? ['Mês', 'Recebido', 'A pagar', 'Bruto do holerite', 'Conta?', '13º', 'Férias', '1/3', 'FGTS', ...(multa ? ['Multa FGTS'] : []), 'Total']
+      : ['Mês', 'Recebido', 'A pagar', 'Bruto do holerite', 'Conta?', 'Recesso', 'Total'],
+    [...linha.meses.map((m) => [mesCurto(m.mes + '-01'), m.recebido, m.a_pagar, m.bruto, m.conta ? 'sim' : 'não',
       ...(clt ? [m.decimo, m.ferias, m.terco, m.fgts, ...(multa ? [m.multa] : [])] : [m.recesso]), m.total]),
-     ['Total', linha.meses.reduce((s, m) => s + m.recebido, 0), linha.meses.reduce((s, m) => s + m.a_pagar, 0), '',
+     ['Total', linha.meses.reduce((s, m) => s + m.recebido, 0), linha.meses.reduce((s, m) => s + m.a_pagar, 0), totalBruto, '',
       ...(clt ? [a.decimo, a.ferias, a.terco, a.fgts, ...(multa ? [a.multa] : [])] : [a.recesso]), a.total]],
     [`Provisão de folha · ${empresa} · ${linha.nome}`, `${NOME_VINCULO[linha.vinculo]} · admissão ${linha.admissao ? dataBR(linha.admissao) : '—'}`]);
   return (
@@ -157,7 +180,7 @@ function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: L
           <table className="tabela-relatorio">
             <thead>
               <tr>
-                <th className="col-fixa">Mês</th><th className="r">Recebeu</th>
+                <th className="col-fixa">Mês</th><th className="r">Lançado</th><th className="r">Bruto do holerite</th>
                 {clt ? <><th className="r">13º</th><th className="r">Férias</th><th className="r">1/3</th><th className="r">FGTS</th>{multa && <th className="r">Multa FGTS</th>}</> : <th className="r">Recesso</th>}
                 <th className="r">Total do mês</th>
               </tr>
@@ -166,10 +189,11 @@ function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: L
               {linha.meses.map((m) => (
                 <tr key={m.mes} className={m.conta ? '' : 'muted'}>
                   <td className="col-fixa">{mesCurto(m.mes + '-01')}{!m.conta && <div className="desc-sub">menos de 15 dias: não conta</div>}</td>
-                  <td className="r num" data-soma={m.remuneracao} data-formato="moeda">
+                  <td className="r num" data-soma={lancado(m)} data-formato="moeda">
                     {m.estimado ? <span className="muted">{brl(m.remuneracao)}</span> : brl(m.recebido + m.a_pagar)}
                     <div className="desc-sub">{m.estimado ? 'sem pagamento: base' : m.a_pagar ? `a pagar ${brl(m.a_pagar)}` : ''}</div>
                   </td>
+                  <td className="r"><CampoBruto key={`${m.mes}:${m.bruto}`} colaborador={linha.id} mes={m.mes} valor={m.bruto} onSalvo={onBruto} /></td>
                   {clt ? <>
                     <td className="r num" data-soma={m.decimo} data-formato="moeda">{brl(m.decimo)}</td>
                     <td className="r num" data-soma={m.ferias} data-formato="moeda">{brl(m.ferias)}</td>
@@ -184,7 +208,8 @@ function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: L
             <tfoot>
               <tr>
                 <td className="col-fixa">Total do período</td>
-                <td className="r num">{brl(totalRem)}</td>
+                <td className="r num">{brl(totalLancado)}</td>
+                <td className="r num">{totalBruto ? brl(totalBruto) : '–'}</td>
                 {clt ? <>
                   <td className="r num">{brl(a.decimo)}</td><td className="r num">{brl(a.ferias)}</td><td className="r num">{brl(a.terco)}</td><td className="r num">{brl(a.fgts)}</td>
                   {multa && <td className="r num">{brl(a.multa)}</td>}
@@ -198,6 +223,7 @@ function DetalheMesAMes({ linha, multa, empresa, onClose, onEditar }: { linha: L
       <p className="muted small">
         Cada mês trabalhado (15 dias ou mais) gera 1/12 do que a pessoa recebeu por ele{clt ? ' de 13º e de férias, mais 1/3 de férias e 8% de FGTS sobre esses valores' : ' de recesso'}.
         O salário pago até o dia 10 é do mês anterior. Mês ainda sem pagamento usa a base ({brl(linha.base)}).
+        Com o bruto do holerite preenchido, o mês é calculado por ele; sem o bruto, pelo valor lançado. Os lançamentos não mudam.
       </p>
     </Modal>
   );
@@ -212,7 +238,6 @@ function FormColaborador({ colaborador, onClose, onSalvo }: { colaborador?: Cola
     salario: colaborador?.salario_base != null ? (colaborador.salario_base / 100).toFixed(2).replace('.', ',') : '',
     admissao: colaborador?.admissao ?? '', demissao: colaborador?.demissao ?? '', ferias_desde: colaborador?.ferias_desde ?? '', observacao: colaborador?.observacao ?? '',
   });
-  const centavos = (s: string) => (s.trim() ? Math.round(Number(s.replace(/\./g, '').replace(',', '.')) * 100) : null);
   const salvar = async () => {
     const corpo = { ...f, contato_id: f.contato_id || null, salario_base: centavos(f.salario), admissao: f.admissao || null, demissao: f.demissao || null, ferias_desde: f.ferias_desde || null };
     const ok = await acao(() => (colaborador ? api.put(`${base}/colaboradores/${colaborador.id}`, corpo) : api.post(`${base}/colaboradores`, corpo)), colaborador ? 'Colaborador atualizado.' : 'Colaborador cadastrado.');

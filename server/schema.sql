@@ -235,6 +235,15 @@ create table if not exists colaboradores (
   criado_em timestamptz not null default now()
 );
 
+-- Bruto do holerite por mês de competência: quando informado, é a remuneração da provisão no lugar do líquido lançado.
+create table if not exists colaborador_brutos (
+  colaborador_id bigint not null references colaboradores(id) on delete cascade,
+  mes text not null check (mes ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+  valor bigint not null check (valor >= 0),
+  atualizado_em timestamptz not null default now(),
+  primary key (colaborador_id, mes)
+);
+
 -- Integração com o Asaas (só leitura): cobranças viram contas a receber (com baixa quando pagas) e as movimentações
 -- da conta caem na conciliação. A chave de API de cada conta fica no Vault ('asaas_conta_<id>'), nunca nesta tabela.
 create table if not exists asaas_contas (
@@ -300,3 +309,4 @@ alter table asaas_contas enable row level security;
 alter table asaas_clientes enable row level security;
 alter table asaas_pagamentos enable row level security;
 alter table colaboradores enable row level security;
+alter table colaborador_brutos enable row level security;
