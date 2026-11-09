@@ -15,6 +15,7 @@ import { forecastRouter } from './forecast.js';
 import { dashboardRouter } from './dashboard.js';
 import { asaasRouter, webhookAsaas } from './asaas.js';
 import { folhaRouter } from './folha.js';
+import { markupRouter } from './markup.js';
 
 export const api = express.Router();
 
@@ -719,6 +720,7 @@ e.use(forecastRouter);
 e.use(dashboardRouter);
 e.use(asaasRouter);
 e.use(folhaRouter);
+e.use(markupRouter);
 
 // ---------- Erros ----------
 
