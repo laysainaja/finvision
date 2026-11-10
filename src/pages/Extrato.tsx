@@ -117,8 +117,10 @@ export function Extrato() {
   // Se a lista encolheu (ex.: excluiu o último da página), fica na última página que ainda existe.
   useEffect(() => { if (data && pagina > totalPaginas - 1) setPagina(totalPaginas - 1); }, [data, pagina, totalPaginas]);
   const paginaItens = itens.slice(pagina * porPagina, (pagina + 1) * porPagina);
-  const abertos = itens.filter((i) => !i.data_pagamento);
+  // Qualquer lançamento pode ser marcado (para somar); dar baixa vale só para os em aberto da seleção.
   const selecao = itens.filter((i) => selecionados.has(i.id));
+  const selecaoAbertos = selecao.filter((i) => !i.data_pagamento);
+  const totalSelecao = selecao.reduce((s, i) => s + i.valor_extrato, 0);
   const filtrosAtivos = [q, conta].filter(Boolean).length + (ocultas.size ? 1 : 0) + contarFiltros(extras);
 
   // Cartões de resumo: clicar mostra só aquele grupo na lista (clicar de novo desfaz). Os valores seguem só os filtros.
@@ -278,8 +280,12 @@ export function Extrato() {
         {selecao.length > 0 && (
           <div className="toolbar" style={{ background: 'var(--primary-soft)' }}>
             <b>{selecao.length} selecionado(s)</b>
-            <span className="num">{brl(selecao.reduce((s, i) => s + Math.abs(i.valor_extrato), 0))}</span>
-            <button className="btn btn-primary btn-sm" onClick={() => setBaixa(selecao)}><Icon name="check" /> Baixar selecionados</button>
+            <span className={'num ' + (totalSelecao >= 0 ? 'entrada' : 'saida')}>{brl(totalSelecao)}</span>
+            {selecaoAbertos.length > 0 && (
+              <button className="btn btn-primary btn-sm" onClick={() => setBaixa(selecaoAbertos)}>
+                <Icon name="check" /> {selecaoAbertos.length === selecao.length ? 'Baixar selecionados' : `Baixar os ${selecaoAbertos.length} em aberto`}
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => setSelecionados(new Set())}>Limpar seleção</button>
           </div>
         )}
@@ -291,9 +297,9 @@ export function Extrato() {
                 <th style={{ width: 36 }}>
                   <input
                     type="checkbox"
-                    aria-label="Selecionar todos os em aberto"
-                    checked={abertos.length > 0 && abertos.every((i) => selecionados.has(i.id))}
-                    onChange={(e) => setSelecionados(new Set(e.target.checked ? abertos.map((i) => i.id) : []))}
+                    aria-label="Selecionar todos"
+                    checked={itens.length > 0 && itens.every((i) => selecionados.has(i.id))}
+                    onChange={(e) => setSelecionados(new Set(e.target.checked ? itens.map((i) => i.id) : []))}
                   />
                 </th>
                 <th>Data</th>
@@ -324,7 +330,7 @@ export function Extrato() {
                 ];
                 return (
                   <tr key={i.id} className={selecionados.has(i.id) ? 'selecionado' : ''}>
-                    <td>{!pago && <input type="checkbox" checked={selecionados.has(i.id)} onChange={() => alternar(i.id)} aria-label="Selecionar" />}</td>
+                    <td><input type="checkbox" checked={selecionados.has(i.id)} onChange={() => alternar(i.id)} aria-label="Selecionar" /></td>
                     <td className="num">{dataBR(i.data)}</td>
                     <td>
                       <div className="desc-principal">
