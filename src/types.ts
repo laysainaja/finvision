@@ -286,7 +286,7 @@ export interface ExtratoItem {
   ajuste_motivo: MotivoDiferenca | null;
   ajuste_valor: number | null;
   /** Conciliado em conjunto: os lançamentos pagos por este movimento. */
-  lote: { id: number; descricao: string; contato: string | null; vencimento: string; valor: number }[] | null;
+  lote: { id: number; descricao: string; contato: string | null; vencimento: string; valor: number; ajuste_motivo: MotivoDiferenca | null; ajuste_valor: number | null }[] | null;
 }
 
 export type MotivoDiferenca = 'multa' | 'juros' | 'desconto' | 'parcial' | 'valor';

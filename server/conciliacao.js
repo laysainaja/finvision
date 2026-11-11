@@ -8,7 +8,8 @@ export const conciliacaoRouter = express.Router({ mergeParams: true });
 const ITEM_SELECT = `
   SELECT x.*, cb.nome AS conta_nome, l.descricao AS lancamento_descricao, l.contato AS lancamento_contato,
     l.vencimento AS lancamento_vencimento, l.valor AS lancamento_valor,
-    (SELECT json_agg(json_build_object('id', m.id, 'descricao', m.descricao, 'contato', m.contato, 'vencimento', m.vencimento, 'valor', COALESCE(m.valor_pago, m.valor)) ORDER BY m.vencimento, m.id)
+    (SELECT json_agg(json_build_object('id', m.id, 'descricao', m.descricao, 'contato', m.contato, 'vencimento', m.vencimento, 'valor', COALESCE(m.valor_pago, m.valor),
+      'ajuste_motivo', m.lote_ajuste_motivo, 'ajuste_valor', m.lote_ajuste_valor) ORDER BY m.vencimento, m.id)
      FROM lancamentos m WHERE m.extrato_lote_id = x.id) AS lote
   FROM extrato_itens x
   JOIN contas_bancarias cb ON cb.id = x.conta_bancaria_id
@@ -222,6 +223,37 @@ conciliacaoRouter.get('/extrato/:id/sugestoes', async (req, res) => {
 // como numa previsão de anúncios) ou o valor total mudou. Fica no extrato para mostrar e para o Desfazer.
 const MOTIVOS_DIFERENCA = { maior: ['multa', 'juros', 'valor'], menor: ['parcial', 'desconto', 'valor'] };
 
+// O que a diferença muda no lançamento (diferença = pago − lançamento).
+const ajustesDaDiferenca = (l, diferenca, motivo) => ({
+  novo_valor: l.valor + (motivo === 'valor' || motivo === 'parcial' ? diferenca : 0),
+  juros: l.juros + (motivo === 'juros' ? diferenca : 0),
+  multa: l.multa + (motivo === 'multa' ? diferenca : 0),
+  desconto: l.desconto - (motivo === 'desconto' ? diferenca : 0),
+});
+
+// Pagamento parcial: o que faltou continua em aberto num lançamento novo, com o mesmo vencimento.
+async function criarRestante(l, diferenca, data, eid) {
+  await inserirLancamento({
+    empresa_id: eid, tipo: l.tipo, descricao: l.descricao, contato: l.contato, contato_id: l.contato_id, tipo_receita: l.tipo_receita,
+    categoria_id: l.categoria_id, conta_bancaria_id: l.conta_bancaria_id, valor: -diferenca, vencimento: l.vencimento, documento: l.documento,
+    observacao: [`Restante do pagamento parcial de ${data.split('-').reverse().join('/')}`, l.observacao].filter(Boolean).join(' — '),
+    grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id, centro_custo: l.centro_custo, forma_pagamento: l.forma_pagamento,
+  });
+}
+
+// Desfaz o que a diferença registrou no lançamento (e apaga o restante do parcial, se ainda não foi pago).
+async function reverterDiferenca(lancamentoId, dif, motivo) {
+  if (motivo === 'parcial') {
+    const r = await get('SELECT id, data_pagamento FROM lancamentos WHERE restante_de = :id ORDER BY id LIMIT 1', { id: lancamentoId });
+    check(!r?.data_pagamento, 'O restante deste pagamento parcial já foi pago: desfaça o pagamento do restante antes.', 409);
+    if (r) await all('DELETE FROM lancamentos WHERE id = :id', { id: r.id });
+  }
+  await all(
+    `UPDATE lancamentos SET valor_pago = valor_pago - :dif, valor = valor - :v, juros = juros - :j, multa = multa - :m, desconto = desconto + :d WHERE id = :id`,
+    { dif, v: motivo === 'valor' || motivo === 'parcial' ? dif : 0, j: motivo === 'juros' ? dif : 0, m: motivo === 'multa' ? dif : 0, d: motivo === 'desconto' ? dif : 0, id: lancamentoId },
+  );
+}
+
 async function conciliar(item, lancamentoId, eid, motivo = null) {
   check(!item.lancamento_id, 'Este item já está conciliado.', 409);
   check(!item.ignorado, 'Este item está marcado como ignorado.', 409);
@@ -241,12 +273,7 @@ async function conciliar(item, lancamentoId, eid, motivo = null) {
     check(motivo !== 'parcial' || !l.data_pagamento, 'Pagamento parcial só vale para lançamento em aberto.');
     check(!['valor', 'parcial'].includes(motivo) || l.valor + diferenca > 0, 'O valor do lançamento precisa ser maior que zero.');
   }
-  const ajustes = {
-    novo_valor: l.valor + (motivo === 'valor' || motivo === 'parcial' ? diferenca : 0),
-    juros: l.juros + (motivo === 'juros' ? diferenca : 0),
-    multa: l.multa + (motivo === 'multa' ? diferenca : 0),
-    desconto: l.desconto - (motivo === 'desconto' ? diferenca : 0),
-  };
+  const ajustes = ajustesDaDiferenca(l, diferenca, motivo);
   if (l.data_pagamento) {
     check(l.conta_bancaria_id === item.conta_bancaria_id, 'Este lançamento foi pago por outra conta bancária.');
     if (diferenca !== 0) {
@@ -260,14 +287,7 @@ async function conciliar(item, lancamentoId, eid, motivo = null) {
       { ...ajustes, data: item.data, banco, conta: item.conta_bancaria_id, id: l.id },
     );
   }
-  if (diferenca !== 0 && motivo === 'parcial') {
-    await inserirLancamento({
-      empresa_id: eid, tipo: l.tipo, descricao: l.descricao, contato: l.contato, contato_id: l.contato_id, tipo_receita: l.tipo_receita,
-      categoria_id: l.categoria_id, conta_bancaria_id: l.conta_bancaria_id, valor: -diferenca, vencimento: l.vencimento, documento: l.documento,
-      observacao: [`Restante do pagamento parcial de ${item.data.split('-').reverse().join('/')}`, l.observacao].filter(Boolean).join(' — '),
-      grupo_parcelas: l.grupo_parcelas, parcela: l.parcela, total_parcelas: l.total_parcelas, restante_de: l.id, centro_custo: l.centro_custo, forma_pagamento: l.forma_pagamento,
-    });
-  }
+  if (diferenca !== 0 && motivo === 'parcial') await criarRestante(l, diferenca, item.data, eid);
   await all(
     'UPDATE extrato_itens SET lancamento_id = :lid, ajuste_motivo = :motivo, ajuste_valor = :dif WHERE id = :id',
     { lid: l.id, motivo: diferenca !== 0 ? motivo : null, dif: diferenca !== 0 ? diferenca : null, id: item.id },
@@ -313,34 +333,50 @@ conciliacaoRouter.post('/extrato/:id/conciliar', async (req, res) => {
   res.json(await buscarItem(item.id, req.eid));
 });
 
-// Pagamento em conjunto: um movimento do banco quita vários lançamentos em aberto. A soma precisa ser igual à do banco;
-// cada lançamento recebe baixa pelo próprio valor. A escolha é sempre da pessoa (nada entra aqui sozinho).
+// Pagamento em conjunto: um movimento do banco quita vários lançamentos em aberto. Cada lançamento pode ser pago por
+// outro valor (multa, juros, desconto, parcial ou valor total mudou, como na conciliação de um só); a soma dos valores
+// pagos precisa ser igual à do banco. A escolha é sempre da pessoa (nada entra aqui sozinho).
+// Corpo: { itens: [{ id, valor_pago?, motivo? }] } ou, sem ajustes, { lancamento_ids: [...] }.
 conciliacaoRouter.post('/extrato/:id/conciliar-varios', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
   check(!item.lancamento_id, 'Este item já está conciliado.', 409);
   check(!item.ignorado, 'Este item está marcado como ignorado.', 409);
-  const ids = [...new Set((Array.isArray(req.body.lancamento_ids) ? req.body.lancamento_ids : []).map(Number))];
-  check(ids.length >= 2 && ids.every(Number.isInteger), 'Escolha pelo menos dois lançamentos.');
-  const lista = [];
-  for (const id of ids) lista.push(await buscarLancamento(id, req.eid));
+  const pedidos = Array.isArray(req.body.itens) ? req.body.itens : (Array.isArray(req.body.lancamento_ids) ? req.body.lancamento_ids : []).map((id) => ({ id }));
+  const ids = pedidos.map((p) => Number(p?.id));
+  check(ids.length >= 2 && ids.every(Number.isInteger) && new Set(ids).size === ids.length, 'Escolha pelo menos dois lançamentos.');
   const tipo = item.valor > 0 ? 'receber' : 'pagar';
-  for (const l of lista) {
+  const lista = [];
+  for (const p of pedidos) {
+    const l = await buscarLancamento(Number(p.id), req.eid);
     check(l.tipo === tipo, 'Entradas só conciliam com contas a receber, e saídas com contas a pagar.');
     check(!l.extrato_id, `"${l.descricao}" já está conciliado com outro item do extrato.`, 409);
     check(!l.data_pagamento, `"${l.descricao}" já está pago. Escolha só lançamentos em aberto.`, 409);
     check(!l.transferencia_id, 'Transferência não entra em conciliação em conjunto.');
     check(mesDe(l.vencimento) === mesDe(item.data), `"${l.descricao}" é de outro mês. A conciliação só aceita lançamentos do mesmo mês do movimento do banco.`);
+    const pago = p.valor_pago === undefined || p.valor_pago === null ? l.valor : p.valor_pago;
+    check(isCents(pago) && pago > 0, `Valor pago inválido em "${l.descricao}".`);
+    const diferenca = pago - l.valor;
+    const motivo = diferenca !== 0 ? p.motivo : null;
+    if (diferenca !== 0) {
+      check(MOTIVOS_DIFERENCA[diferenca > 0 ? 'maior' : 'menor'].includes(motivo),
+        diferenca > 0 ? `"${l.descricao}" foi pago a mais: escolha multa, juros ou valor total.` : `"${l.descricao}" foi pago a menos: escolha pagamento parcial, desconto ou valor total.`);
+    }
+    lista.push({ l, pago, diferenca, motivo });
   }
-  const soma = lista.reduce((s, l) => s + l.valor, 0);
+  const soma = lista.reduce((s, x) => s + x.pago, 0);
   const banco = Math.abs(item.valor);
   const reais = (c) => (c / 100).toFixed(2).replace('.', ',');
-  check(soma === banco, `A soma dos lançamentos (R$ ${reais(soma)}) precisa ser igual ao valor do banco (R$ ${reais(banco)}).`);
+  check(soma === banco, `A soma dos valores pagos (R$ ${reais(soma)}) precisa ser igual ao valor do banco (R$ ${reais(banco)}).`);
   await transaction(async () => {
-    await all(
-      `UPDATE lancamentos SET data_pagamento = :data, valor_pago = valor, conta_bancaria_id = :conta, origem_baixa = 'conciliacao', extrato_lote_id = :x
-       WHERE id = ANY(:ids::bigint[]) AND empresa_id = :eid`,
-      { data: item.data, conta: item.conta_bancaria_id, x: item.id, ids: pgArray(ids), eid: req.eid },
-    );
+    for (const { l, pago, diferenca, motivo } of lista) {
+      await all(
+        `UPDATE lancamentos SET data_pagamento = :data, valor_pago = :pago, conta_bancaria_id = :conta, origem_baixa = 'conciliacao', extrato_lote_id = :x,
+           valor = :novo_valor, juros = :juros, multa = :multa, desconto = :desconto, lote_ajuste_motivo = :motivo, lote_ajuste_valor = :dif
+         WHERE id = :id AND empresa_id = :eid`,
+        { ...ajustesDaDiferenca(l, diferenca, motivo), data: item.data, pago, conta: item.conta_bancaria_id, x: item.id, motivo, dif: diferenca || null, id: l.id, eid: req.eid },
+      );
+      if (motivo === 'parcial') await criarRestante(l, diferenca, item.data, req.eid);
+    }
     await all('UPDATE extrato_itens SET lancamento_id = :lid, ajuste_motivo = NULL, ajuste_valor = NULL WHERE id = :id', { lid: ids[0], id: item.id });
   });
   res.json(await buscarItem(item.id, req.eid));
@@ -418,26 +454,18 @@ conciliacaoRouter.post('/extrato/:id/desfazer', async (req, res) => {
     await all('UPDATE extrato_itens SET lancamento_id = NULL, ajuste_motivo = NULL, ajuste_valor = NULL WHERE id = :id', { id: item.id });
     // Conciliação em conjunto: todos os lançamentos do lote voltam a ficar em aberto.
     if (item.lote) {
+      // O que cada um registrou por causa de valor diferente volta como estava.
+      const ajustados = await all('SELECT id, lote_ajuste_motivo AS motivo, lote_ajuste_valor AS dif FROM lancamentos WHERE extrato_lote_id = :x AND empresa_id = :eid AND lote_ajuste_motivo IS NOT NULL', { x: item.id, eid: req.eid });
+      for (const a of ajustados) await reverterDiferenca(a.id, Number(a.dif), a.motivo);
       await all(
-        "UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL, extrato_lote_id = NULL WHERE extrato_lote_id = :x AND empresa_id = :eid",
+        `UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL, extrato_lote_id = NULL, lote_ajuste_motivo = NULL, lote_ajuste_valor = NULL
+         WHERE extrato_lote_id = :x AND empresa_id = :eid`,
         { x: item.id, eid: req.eid },
       );
       return;
     }
     // O que a conciliação registrou por causa da diferença de valor volta como estava.
-    if (item.ajuste_motivo) {
-      const dif = item.ajuste_valor, motivo = item.ajuste_motivo;
-      if (motivo === 'parcial') {
-        // O restante volta para o lançamento; se já foi pago, precisa ser desfeito antes.
-        const r = await get('SELECT id, data_pagamento FROM lancamentos WHERE restante_de = :id ORDER BY id LIMIT 1', { id: item.lancamento_id });
-        check(!r?.data_pagamento, 'O restante deste pagamento parcial já foi pago: desfaça o pagamento do restante antes.', 409);
-        if (r) await all('DELETE FROM lancamentos WHERE id = :id', { id: r.id });
-      }
-      await all(
-        `UPDATE lancamentos SET valor_pago = valor_pago - :dif, valor = valor - :v, juros = juros - :j, multa = multa - :m, desconto = desconto + :d WHERE id = :id`,
-        { dif, v: motivo === 'valor' || motivo === 'parcial' ? dif : 0, j: motivo === 'juros' ? dif : 0, m: motivo === 'multa' ? dif : 0, d: motivo === 'desconto' ? dif : 0, id: item.lancamento_id },
-      );
-    }
+    if (item.ajuste_motivo) await reverterDiferenca(item.lancamento_id, item.ajuste_valor, item.ajuste_motivo);
     // Só desfaz a baixa se foi a própria conciliação que a fez; baixas manuais continuam valendo.
     await all(
       "UPDATE lancamentos SET data_pagamento = NULL, valor_pago = NULL, origem_baixa = NULL WHERE id = :id AND origem_baixa = 'conciliacao'",

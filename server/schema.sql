@@ -218,6 +218,11 @@ alter table extrato_itens add column if not exists ajuste_valor bigint; -- banco
 
 -- Um movimento do banco conciliado com vários lançamentos (pagamento em conjunto): todos apontam para o item do extrato.
 alter table lancamentos add column if not exists extrato_lote_id bigint references extrato_itens(id) on delete set null;
+-- No lote, cada lançamento pode ter sido pago por valor diferente: o motivo e a diferença (pago − lançamento) ficam nele, para o Desfazer.
+alter table lancamentos add column if not exists lote_ajuste_motivo text;
+alter table lancamentos drop constraint if exists lancamentos_lote_ajuste_motivo_check;
+alter table lancamentos add constraint lancamentos_lote_ajuste_motivo_check check (lote_ajuste_motivo in ('multa', 'juros', 'desconto', 'parcial', 'valor'));
+alter table lancamentos add column if not exists lote_ajuste_valor bigint;
 
 -- Colaboradores, para a provisão de folha (13º, férias, 1/3, FGTS). O valor da base sai da média do que foi pago à pessoa
 -- (salário + comissões) pelo cadastro ligado; salario_base é usado quando ainda não há pagamentos.

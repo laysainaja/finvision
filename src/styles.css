@@ -424,6 +424,9 @@ td.somado { background: var(--primary-soft) !important; box-shadow: inset 0 0 0 
 .conc-fv-abas { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .conc-opcao { cursor: pointer; }
 .conc-opcao input { accent-color: var(--primary); }
+.conc-ajuste { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: -2px 0 6px 30px; font-size: 13px; }
+.conc-ajuste .input { width: 120px; text-align: right; }
+.conc-ajuste select.input { width: auto; text-align: left; }
 @media (max-width: 900px) {
   .conc-cabecalho { display: none; }
   .conc-linha { grid-template-columns: 1fr; padding: 14px 16px; }

@@ -220,6 +220,11 @@ const diaSemana = (iso: string) => {
 };
 
 const NOME_MOTIVO: Record<MotivoDiferenca, string> = { multa: 'Multa', juros: 'Juros', desconto: 'Desconto', parcial: 'Pagamento parcial (abater deste lançamento)', valor: 'O valor total mudou' };
+const MOTIVOS: Record<'maior' | 'menor', MotivoDiferenca[]> = { maior: ['multa', 'juros', 'valor'], menor: ['parcial', 'desconto', 'valor'] };
+const motivosPara = (diferenca: number) => MOTIVOS[diferenca > 0 ? 'maior' : 'menor'];
+const NOME_CURTO: Record<MotivoDiferenca, string> = { multa: 'multa', juros: 'juros', desconto: 'desconto', parcial: 'parcial, restante em aberto', valor: 'valor mudou' };
+// "1.234,56" → 123456 centavos; NaN quando não é número.
+const paraCentavos = (s: string) => (s.trim() ? Math.round(Number(s.replace(/\s|R\$/g, '').replace(/\./g, '').replace(',', '.')) * 100) : NaN);
 
 /** Uma linha da conciliação, como no Conta Azul: o movimento do banco à esquerda, o botão no meio e o FinVision à direita. */
 function LinhaConciliacao({ item }: { item: ExtratoItem }) {
@@ -236,6 +241,9 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const [editando, setEditando] = useState<Sugestao | null>(null);
   const [varios, setVarios] = useState<Set<number>>(new Set());
   const [buscaVarios, setBuscaVarios] = useState('');
+  // Vários: valor pago de cada lançamento escolhido (texto digitado) e o motivo quando é diferente do lançamento.
+  const [pagosVarios, setPagosVarios] = useState<Record<number, string>>({});
+  const [motivosVarios, setMotivosVarios] = useState<Record<number, MotivoDiferenca>>({});
   const [descricao, setDescricao] = useState(item.descricao ?? '');
   const [categoria, setCategoria] = useState('');
   const [contato, setContato] = useState('');
@@ -253,11 +261,17 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes` : null);
   const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' ? `${base}/extrato/${item.id}/sugestoes${q ? qs({ q }) : '?todos=1'}` : null);
   const abertos = useApi<Sugestao[]>(pendente && modo === 'varios' ? `${base}/extrato/${item.id}/sugestoes?todos=1` : null);
-  const somaVarios = (abertos.data ?? []).filter((l) => varios.has(l.id)).reduce((s, l) => s + l.valor, 0);
+  const escolhidosVarios = (abertos.data ?? []).filter((l) => varios.has(l.id));
+  const pagoDe = (l: Sugestao) => (pagosVarios[l.id] === undefined ? l.valor : paraCentavos(pagosVarios[l.id]));
+  const somaVarios = escolhidosVarios.reduce((s, l) => s + (Number.isFinite(pagoDe(l)) ? pagoDe(l) : 0), 0);
   const faltaVarios = Math.abs(item.valor) - somaVarios;
   const termoVarios = buscaVarios.trim().toLowerCase();
   const abertosVisiveis = (abertos.data ?? []).filter((l) => !termoVarios || `${l.descricao} ${l.contato ?? ''}`.toLowerCase().includes(termoVarios) || varios.has(l.id));
-  const alternarVarios = (id: number) => setVarios((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const alternarVarios = (id: number) => {
+    setVarios((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    setPagosVarios((p) => { const n = { ...p }; delete n[id]; return n; });
+    setMotivosVarios((m) => { const n = { ...m }; delete n[id]; return n; });
+  };
 
   // Sem sugestão, já abre em "Novo lançamento"; com sugestão forte, ela vem marcada.
   useEffect(() => {
@@ -284,13 +298,20 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   // Lançamento escolhido com valor diferente do banco: precisa dizer o que é a diferença antes de conciliar.
   const selecionado = [...(sugestoes.data ?? []), ...(encontrados.data ?? [])].find((s) => s.id === escolhido);
   const diferenca = selecionado && (modo === 'sugestoes' || modo === 'buscar') ? Math.abs(item.valor) - (selecionado.valor_pago ?? selecionado.valor) : 0;
-  const motivosPossiveis: MotivoDiferenca[] = diferenca > 0 ? ['multa', 'juros', 'valor'] : ['parcial', 'desconto', 'valor'];
+  const motivosPossiveis = motivosPara(diferenca);
 
   const conciliar = () => {
     if (modo === 'varios') {
       if (varios.size < 2) return toast('Escolha pelo menos dois lançamentos.', true);
-      if (faltaVarios !== 0) return toast('A soma dos lançamentos escolhidos precisa ser igual ao valor do banco.', true);
-      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar-varios`, { lancamento_ids: [...varios] }), `${varios.size} lançamentos conciliados.`);
+      for (const l of escolhidosVarios) {
+        const pago = pagoDe(l);
+        if (!Number.isFinite(pago) || pago <= 0) return toast(`Valor pago inválido em "${l.descricao}".`, true);
+        if (pago !== l.valor && !motivosPara(pago - l.valor).includes(motivosVarios[l.id])) return toast(`"${l.descricao}" foi pago por outro valor: escolha o motivo da diferença.`, true);
+      }
+      if (faltaVarios !== 0) return toast('A soma dos valores pagos precisa ser igual ao valor do banco.', true);
+      return rodar(() => api.post(`${base}/extrato/${item.id}/conciliar-varios`, {
+        itens: escolhidosVarios.map((l) => ({ id: l.id, valor_pago: pagoDe(l), ...(pagoDe(l) !== l.valor && { motivo: motivosVarios[l.id] }) })),
+      }), `${varios.size} lançamentos conciliados.`);
     }
     if (modo === 'sugestoes' || modo === 'buscar') {
       if (!escolhido) return toast('Escolha um lançamento para conciliar.', true);
@@ -369,7 +390,10 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
             <div style={{ minWidth: 0 }}>
               <div className="muted small">Conciliado com{item.lote ? ` ${item.lote.length} lançamentos` : ''}</div>
               {item.lote ? item.lote.map((m) => (
-                <div key={m.id} className="desc-sub">{m.descricao}{m.contato ? ` · ${m.contato}` : ''} · venc. {dataBR(m.vencimento)} · <span className="num">{brl(m.valor)}</span></div>
+                <div key={m.id} className="desc-sub">
+                  {m.descricao}{m.contato ? ` · ${m.contato}` : ''} · venc. {dataBR(m.vencimento)} · <span className="num">{brl(m.valor)}</span>
+                  {m.ajuste_motivo && <> · {NOME_CURTO[m.ajuste_motivo]} <span className="num">{brl(Math.abs(m.ajuste_valor ?? 0))}</span></>}
+                </div>
               )) : <>
                 <div className="desc-principal">{item.lancamento_descricao}</div>
                 <div className="desc-sub">{item.lancamento_contato ?? '—'} · venc. {dataBR(item.lancamento_vencimento)}</div>
@@ -408,22 +432,46 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
               <>
                 <input className="input" style={{ width: '100%' }} placeholder="Filtrar por descrição ou contato…" value={buscaVarios} onChange={(e) => setBuscaVarios(e.target.value)} />
                 <div className="lista conc-varios">
-                  {abertosVisiveis.map((l) => (
-                    <label key={l.id} className={'sugestao conc-opcao' + (varios.has(l.id) ? ' forte' : '')}>
-                      <input type="checkbox" checked={varios.has(l.id)} onChange={() => alternarVarios(l.id)} />
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div className="desc-principal">{l.descricao}</div>
-                        <div className="desc-sub">{l.contato ?? '—'} · venc. {dataBR(l.vencimento)}</div>
+                  {abertosVisiveis.map((l) => {
+                    const pago = pagoDe(l);
+                    const dif = Number.isFinite(pago) ? pago - l.valor : 0;
+                    return (
+                      <div key={l.id}>
+                        <label className={'sugestao conc-opcao' + (varios.has(l.id) ? ' forte' : '')}>
+                          <input type="checkbox" checked={varios.has(l.id)} onChange={() => alternarVarios(l.id)} />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className="desc-principal">{l.descricao}</div>
+                            <div className="desc-sub">{l.contato ?? '—'} · venc. {dataBR(l.vencimento)}</div>
+                          </div>
+                          <span className="num desc-principal">{brl(l.valor)}</span>
+                        </label>
+                        {varios.has(l.id) && (
+                          <div className="conc-ajuste">
+                            <span className="muted">Valor pago</span>
+                            <input className="input num" inputMode="decimal" aria-label={`Valor pago de ${l.descricao}`}
+                              value={pagosVarios[l.id] ?? (l.valor / 100).toFixed(2).replace('.', ',')}
+                              onChange={(e) => setPagosVarios((p) => ({ ...p, [l.id]: e.target.value }))} />
+                            {!Number.isFinite(pago) && <span className="alerta">valor inválido</span>}
+                            {dif !== 0 && (
+                              <select className="select input" aria-label={`Motivo da diferença de ${l.descricao}`}
+                                value={motivosVarios[l.id] && motivosPara(dif).includes(motivosVarios[l.id]) ? motivosVarios[l.id] : ''}
+                                onChange={(e) => setMotivosVarios((m) => ({ ...m, [l.id]: e.target.value as MotivoDiferenca }))}>
+                                <option value="">{dif > 0 ? `+${brl(dif)}: o que é?` : `−${brl(-dif)}: o que é?`}</option>
+                                {motivosPara(dif).map((m) => <option key={m} value={m}>{NOME_MOTIVO[m]}</option>)}
+                              </select>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <span className="num desc-principal">{brl(l.valor)}</span>
-                    </label>
-                  ))}
+                    );
+                  })}
                   {abertos.data && abertosVisiveis.length === 0 && <div className="muted small">Nenhum lançamento em aberto neste mês.</div>}
                 </div>
                 <div className={'small ' + (varios.size && faltaVarios !== 0 ? 'alerta' : 'muted')}>
-                  {varios.size} escolhido(s): <b className="num">{brl(somaVarios)}</b> · banco <b className="num">{brl(Math.abs(item.valor))}</b>
+                  {varios.size} escolhido(s), valor pago <b className="num">{brl(somaVarios)}</b> · banco <b className="num">{brl(Math.abs(item.valor))}</b>
                   {faltaVarios === 0 ? ' · valores iguais' : ` · ${faltaVarios > 0 ? 'faltam' : 'sobram'} ${brl(Math.abs(faltaVarios))}`}
                 </div>
+                <div className="muted small">Teve multa, juros, desconto, pagamento parcial ou o valor mudou? Altere o valor pago do lançamento e escolha o motivo.</div>
               </>
             )}
             {(modo === 'novo' || modo === 'transferencia') && (
