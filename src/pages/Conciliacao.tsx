@@ -259,7 +259,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
   }, [busca]);
 
   const sugestoes = useApi<Sugestao[]>(pendente ? `${base}/extrato/${item.id}/sugestoes` : null);
-  const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' ? `${base}/extrato/${item.id}/sugestoes${q ? qs({ q }) : '?todos=1'}` : null);
+  const encontrados = useApi<Sugestao[]>(pendente && modo === 'buscar' ? `${base}/extrato/${item.id}/sugestoes${q ? qs({ q, anteriores: 1 }) : '?todos=1&anteriores=1'}` : null);
   const abertos = useApi<Sugestao[]>(pendente && modo === 'varios' ? `${base}/extrato/${item.id}/sugestoes?todos=1` : null);
   const escolhidosVarios = (abertos.data ?? []).filter((l) => varios.has(l.id));
   const pagoDe = (l: Sugestao) => (pagosVarios[l.id] === undefined ? l.valor : paraCentavos(pagosVarios[l.id]));
@@ -342,6 +342,7 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
               <StatusBadge status={s.status} tipo={s.tipo} />
               {s.valor_exato ? <span className="badge badge-pago">valor exato</span> : <span className="badge badge-aviso">valor diferente</span>}
               <span className="badge badge-neutro">{s.dias === 0 ? 'mesma data' : `${s.dias} dia(s) de diferença`}</span>
+              {!s.data_pagamento && s.vencimento.slice(0, 7) < item.data.slice(0, 7) && <span className="badge badge-aviso">mês anterior</span>}
             </div>
           </div>
           <span className="num desc-principal">{brl(s.valor_pago ?? s.valor)}</span>
@@ -424,8 +425,8 @@ function LinhaConciliacao({ item }: { item: ExtratoItem }) {
             {modo === 'sugestoes' && listaEscolha(sugestoes.data, 'Nenhum lançamento deste mês com valor e data parecidos. Use Novo lançamento, Nova transferência ou Buscar.')}
             {modo === 'buscar' && (
               <>
-                <input className="input" style={{ width: '100%' }} placeholder="Filtrar os lançamentos do mês por descrição ou contato…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
-                {listaEscolha(encontrados.data, q ? 'Nada encontrado com essa busca neste mês.' : 'Nenhum lançamento em aberto neste mês.')}
+                <input className="input" style={{ width: '100%' }} placeholder="Filtrar por descrição ou contato (este mês e até 12 meses antes)…" value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
+                {listaEscolha(encontrados.data, q ? 'Nada em aberto com essa busca, neste mês ou nos 12 anteriores.' : 'Nenhum lançamento em aberto neste mês nem nos 12 anteriores.')}
               </>
             )}
             {modo === 'varios' && (

@@ -1,6 +1,6 @@
 import express from 'express';
 import { all, get, transaction, hoje, STATUS_SQL } from './db.js';
-import { check, isDate, isCents, optText, optId, idParam, diffDays, pgArray } from './util.js';
+import { check, isDate, isCents, optText, optId, idParam, diffDays, pgArray, addMonths } from './util.js';
 import { pertence, inserirLancamento, buscarLancamento, criarTransferencia } from './api.js';
 
 export const conciliacaoRouter = express.Router({ mergeParams: true });
@@ -171,14 +171,20 @@ const palavras = (s) =>
 
 const MESMO_MES_SQL = `date_trunc('month', COALESCE(l.data_pagamento, l.vencimento)) = date_trunc('month', :data::date)`;
 const mesDe = (d) => d.slice(0, 7);
+// Buscar lançamento: também o que ficou em aberto nos meses anteriores (recebido ou pago com atraso), até 12 meses antes.
+const MESES_ANTERIORES = 12;
+const ATE_MESES_ANTES_SQL = `date_trunc('month', l.vencimento) BETWEEN date_trunc('month', :data::date) - interval '${MESES_ANTERIORES} months' AND date_trunc('month', :data::date)`;
+// Lançamento em aberto de um mês anterior (até 12 meses) pode ser conciliado com o movimento do banco.
+const deMesAnteriorEmAberto = (l, data) => !l.data_pagamento && mesDe(l.vencimento) < mesDe(data) && mesDe(l.vencimento) >= mesDe(addMonths(data, -MESES_ANTERIORES));
 
 // Pontua candidatos por valor (peso maior), proximidade de data e semelhança do texto.
-async function sugestoes(item, eid, q, todos = false) {
+async function sugestoes(item, eid, q, todos = false, anteriores = false) {
   const tipo = item.valor > 0 ? 'receber' : 'pagar';
   const valorItem = Math.abs(item.valor);
   const p = { eid, tipo, conta: item.conta_bancaria_id, hoje: hoje(), data: item.data, q: `%${q}%` };
-  // Só lançamentos do mesmo mês do movimento (pela data do pagamento, ou do vencimento se em aberto), com ou sem busca.
-  const filtro = `AND ${MESMO_MES_SQL} ${q ? 'AND (l.descricao ILIKE :q OR l.contato ILIKE :q OR l.documento ILIKE :q)' : ''}`;
+  // Lançamentos do mesmo mês do movimento (pela data do pagamento, ou do vencimento se em aberto); no Buscar, também
+  // os em aberto dos meses anteriores.
+  const filtro = `AND ${anteriores ? ATE_MESES_ANTES_SQL : MESMO_MES_SQL} ${q ? 'AND (l.descricao ILIKE :q OR l.contato ILIKE :q OR l.documento ILIKE :q)' : ''}`;
 
   const candidatos = await all(
     `SELECT l.*, ${STATUS_SQL} AS status FROM lancamentos l
@@ -193,7 +199,7 @@ async function sugestoes(item, eid, q, todos = false) {
   );
 
   // Para escolher vários: tudo o que está em aberto no mês, por vencimento.
-  if (todos) return candidatos.sort((a, b) => a.vencimento.localeCompare(b.vencimento) || a.id - b.id).map((l) => ({ ...l, valor_exato: l.valor === valorItem, dias: Math.abs(diffDays(l.vencimento, item.data)), score: 0 }));
+  if (todos) return candidatos.sort((a, b) => (anteriores ? b.vencimento.localeCompare(a.vencimento) : a.vencimento.localeCompare(b.vencimento)) || a.id - b.id).map((l) => ({ ...l, valor_exato: l.valor === valorItem, dias: Math.abs(diffDays(l.vencimento, item.data)), score: 0 }));
 
   const termos = palavras(item.descricao);
   return candidatos
@@ -215,7 +221,7 @@ async function sugestoes(item, eid, q, todos = false) {
 
 conciliacaoRouter.get('/extrato/:id/sugestoes', async (req, res) => {
   const item = await buscarItem(req.params.id, req.eid);
-  res.json(await sugestoes(item, req.eid, optText(req.query.q), req.query.todos === '1'));
+  res.json(await sugestoes(item, req.eid, optText(req.query.q), req.query.todos === '1', req.query.anteriores === '1'));
 });
 
 // Valor do banco diferente do lançamento: a pessoa diz o que é a diferença antes de conciliar. Banco maior: multa, juros
@@ -261,8 +267,8 @@ async function conciliar(item, lancamentoId, eid, motivo = null) {
   check(l.tipo === (item.valor > 0 ? 'receber' : 'pagar'), 'Entradas só conciliam com contas a receber, e saídas com contas a pagar.');
   check(!l.extrato_id, 'Este lançamento já está conciliado com outro item do extrato.', 409);
   const dataLanc = l.data_pagamento ?? l.vencimento;
-  check(mesDe(dataLanc) === mesDe(item.data),
-    `Este lançamento é de ${dataLanc.split('-').reverse().join('/')}, outro mês. A conciliação só aceita lançamentos do mesmo mês do movimento do banco.`);
+  check(mesDe(dataLanc) === mesDe(item.data) || deMesAnteriorEmAberto(l, item.data),
+    `Este lançamento é de ${dataLanc.split('-').reverse().join('/')}, outro mês. A conciliação aceita lançamentos do mesmo mês do movimento do banco, ou em aberto de até ${MESES_ANTERIORES} meses antes.`);
   const banco = Math.abs(item.valor);
   const diferenca = banco - (l.valor_pago ?? l.valor);
   if (diferenca !== 0) {
