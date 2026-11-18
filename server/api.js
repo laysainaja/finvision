@@ -648,6 +648,86 @@ e.post('/lancamentos/baixa-lote', async (req, res) => {
   res.json({ ok: true, quantidade: ids.length });
 });
 
+// Edição em lote: só os campos enviados mudam. Datas e conta não mexem no que já foi conferido com o banco
+// (conciliados ficam de fora); data de pagamento só para os pagos, vencimento só para os em aberto; transferências
+// ficam de fora (as duas pernas andam juntas). O que não pôde mudar volta em "ignorados", com o motivo.
+const idsDoLote = (ids) => {
+  const lista = [...new Set((Array.isArray(ids) ? ids : []).map(Number))];
+  check(lista.length && lista.every(Number.isInteger), 'Selecione ao menos um lançamento.');
+  check(lista.length <= 1000, 'Selecione no máximo 1000 lançamentos por vez.');
+  return lista;
+};
+
+e.post('/lancamentos/editar-lote', async (req, res) => {
+  const ids = idsDoLote(req.body.ids);
+  const c = req.body.campos ?? {};
+  const tem = (k) => Object.prototype.hasOwnProperty.call(c, k);
+  check(['data_pagamento', 'vencimento', 'categoria_id', 'centro_custo', 'conta_bancaria_id', 'contato'].some(tem), 'Escolha o que alterar.');
+  if (tem('data_pagamento')) check(isDate(c.data_pagamento), 'Data de pagamento inválida.');
+  if (tem('vencimento')) check(isDate(c.vencimento), 'Data de vencimento inválida.');
+  const categoriaId = tem('categoria_id') ? optId(c.categoria_id) : undefined;
+  const categoria = categoriaId ? await get('SELECT id, tipo FROM categorias WHERE id = :id AND empresa_id = :eid', { id: categoriaId, eid: req.eid }) : null;
+  if (categoriaId) check(categoria, 'Categoria inválida.');
+  const contaId = tem('conta_bancaria_id') ? optId(c.conta_bancaria_id) : undefined;
+  if (tem('conta_bancaria_id')) { check(contaId, 'Escolha a conta bancária.'); await pertence('contas_bancarias', contaId, req.eid); }
+  const contatos = {}; // o nome vira cadastro de cliente (receber) ou fornecedor (pagar)
+  const ignorados = [];
+  let alterados = 0;
+  await transaction(async () => {
+    for (const id of ids) {
+      const l = await buscarLancamento(id, req.eid);
+      const fora = (motivo) => ignorados.push({ id: l.id, descricao: l.descricao, motivo });
+      if (l.transferencia_id) { fora('transferência: edite pela própria transferência'); continue; }
+      const set = {};
+      if (tem('data_pagamento')) {
+        if (!l.data_pagamento) fora('em aberto: a data de pagamento só muda nos já pagos');
+        else if (l.extrato_id) fora('conciliado com o extrato: desfaça a conciliação para mudar a data de pagamento');
+        else set.data_pagamento = c.data_pagamento;
+      }
+      if (tem('vencimento')) {
+        if (l.data_pagamento) fora('já pago: o vencimento só muda nos em aberto');
+        else set.vencimento = c.vencimento;
+      }
+      if (tem('categoria_id')) {
+        if (categoria && categoria.tipo !== (l.tipo === 'receber' ? 'receita' : 'despesa')) fora('categoria de outro tipo (receita × despesa)');
+        else set.categoria_id = categoriaId;
+      }
+      if (tem('centro_custo')) set.centro_custo = optText(c.centro_custo);
+      if (tem('conta_bancaria_id')) {
+        if (l.extrato_id) fora('conciliado com o extrato: a conta bancária não muda');
+        else set.conta_bancaria_id = contaId;
+      }
+      if (tem('contato')) {
+        if (!(l.tipo in contatos)) contatos[l.tipo] = await resolverContato(req.eid, optText(c.contato), l.tipo);
+        set.contato = contatos[l.tipo]?.nome ?? null;
+        set.contato_id = contatos[l.tipo]?.id ?? null;
+      }
+      const chaves = Object.keys(set);
+      if (!chaves.length) continue;
+      await all(`UPDATE lancamentos SET ${chaves.map((k) => `${k} = :${k}`).join(', ')} WHERE id = :id AND empresa_id = :eid`, { ...set, id: l.id, eid: req.eid });
+      alterados++;
+    }
+  });
+  res.json({ alterados, ignorados });
+});
+
+// Exclusão em lote: conciliados e transferências ficam de fora (desfazer a conciliação / excluir a transferência antes).
+e.post('/lancamentos/excluir-lote', async (req, res) => {
+  const ids = idsDoLote(req.body.ids);
+  const ignorados = [];
+  let excluidos = 0;
+  await transaction(async () => {
+    for (const id of ids) {
+      const l = await buscarLancamento(id, req.eid);
+      if (l.extrato_id) { ignorados.push({ id: l.id, descricao: l.descricao, motivo: 'conciliado com o extrato: desfaça a conciliação antes' }); continue; }
+      if (l.transferencia_id) { ignorados.push({ id: l.id, descricao: l.descricao, motivo: 'transferência: exclua pela própria transferência' }); continue; }
+      await all('DELETE FROM lancamentos WHERE id = :id AND empresa_id = :eid', { id: l.id, eid: req.eid });
+      excluidos++;
+    }
+  });
+  res.json({ excluidos, ignorados });
+});
+
 e.post('/lancamentos/:id/baixa', async (req, res) => {
   const l = await buscarLancamento(req.params.id, req.eid);
   await baixar(l, req.body, req.eid);
