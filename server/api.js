@@ -16,6 +16,7 @@ import { dashboardRouter } from './dashboard.js';
 import { asaasRouter, webhookAsaas } from './asaas.js';
 import { folhaRouter } from './folha.js';
 import { markupRouter } from './markup.js';
+import { cmvRouter } from './cmv.js';
 
 export const api = express.Router();
 
@@ -801,6 +802,7 @@ e.use(dashboardRouter);
 e.use(asaasRouter);
 e.use(folhaRouter);
 e.use(markupRouter);
+e.use(cmvRouter);
 
 // ---------- Erros ----------
 

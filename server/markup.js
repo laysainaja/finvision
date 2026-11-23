@@ -13,7 +13,7 @@ const ultimoDia = (mes) => new Date(Date.UTC(Number(mes.slice(0, 4)), Number(mes
 const fator = (fat, cmv) => (cmv ? Math.round((fat / cmv) * 100) / 100 : null);
 
 // O iFood recebe na quarta, mas a venda é do dia escrito na descrição ("Vendas iFood 28/10").
-function dataDaVenda(descricao, data) {
+export function dataDaVenda(descricao, data) {
   const m = /^Vendas iFood (\d{2})\/(\d{2})$/.exec(descricao ?? '');
   if (!m) return data;
   const ano = Number(data.slice(0, 4));

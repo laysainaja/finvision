@@ -249,6 +249,31 @@ create table if not exists colaborador_brutos (
   primary key (colaborador_id, mes)
 );
 
+-- CMV semanal (empresas de produto): o que a loja anota na aba de CMV da planilha (estoque inicial, compras e estoque
+-- final de cada insumo por semana). CMV = estoque inicial + compras − estoque final. Uma semana por início, por empresa.
+create table if not exists cmv_semanas (
+  id bigint generated always as identity primary key,
+  empresa_id bigint not null references empresas(id) on delete cascade,
+  inicio date not null,
+  fim date not null,
+  meta_pct numeric(5, 2), -- meta de CMV em % do faturamento (definida no relatório; vazio = 40)
+  importado_em timestamptz not null default now(),
+  unique (empresa_id, inicio)
+);
+create table if not exists cmv_itens (
+  id bigint generated always as identity primary key,
+  semana_id bigint not null references cmv_semanas(id) on delete cascade,
+  unidade text,
+  item text not null,
+  valor_unit bigint, -- centavos por unidade
+  est_ini_qtd numeric,
+  est_ini_valor bigint not null default 0,
+  compras bigint not null default 0,
+  est_fin_qtd numeric,
+  est_fin_valor bigint not null default 0
+);
+create index if not exists cmv_itens_semana on cmv_itens (semana_id);
+
 -- Integração com o Asaas (só leitura): cobranças viram contas a receber (com baixa quando pagas) e as movimentações
 -- da conta caem na conciliação. A chave de API de cada conta fica no Vault ('asaas_conta_<id>'), nunca nesta tabela.
 create table if not exists asaas_contas (
@@ -315,3 +340,5 @@ alter table asaas_clientes enable row level security;
 alter table asaas_pagamentos enable row level security;
 alter table colaboradores enable row level security;
 alter table colaborador_brutos enable row level security;
+alter table cmv_semanas enable row level security;
+alter table cmv_itens enable row level security;

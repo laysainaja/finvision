@@ -17,6 +17,7 @@ import { Extrato } from './pages/Extrato';
 import { NOME_SEGMENTO, type Empresa } from './types';
 import { ProvisaoFolha } from './pages/ProvisaoFolha';
 import { MarkupDiario } from './pages/MarkupDiario';
+import { CmvSemanal } from './pages/CmvSemanal';
 import { Analise, DRE, LtvClientes, RELATORIOS, ReceitaPorTipo, RelatorioMensal, Vencidos, relatoriosDoSegmento } from './pages/Relatorios';
 import { Contatos } from './pages/Contatos';
 import { Forecast } from './pages/Forecast';
@@ -305,6 +306,7 @@ function Layout() {
           {rotaValida === 'relatorios/tipos' && <ReceitaPorTipo />}
           {rotaValida === 'relatorios/folha' && <ProvisaoFolha />}
           {rotaValida === 'relatorios/markup' && <MarkupDiario />}
+          {rotaValida === 'relatorios/cmv' && <CmvSemanal />}
           {rotaValida === 'relatorios/centros' && (
             <Analise key="centros" tipo="pagar" agruparInicial="centro" fixo alternarTipo titulo="Centro de custo" descricao="Quanto saiu (ou entrou) em cada centro de custo, mês a mês, e o peso de cada um no total. Lançamento sem centro de custo aparece em “Sem centro de custo”." />
           )}
