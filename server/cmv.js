@@ -1,7 +1,8 @@
 // CMV semanal (empresas de produto). A loja continua preenchendo a aba de CMV da planilha; o arquivo é lido no
 // navegador e as semanas chegam aqui já separadas por insumo. CMV = estoque inicial + compras − estoque final.
-// O relatório cruza com o FinVision: faturamento da semana (vendas pela data da venda, como no Markup) e as compras
-// lançadas (categorias de custo, sem motoboy), além de alertas de preço, estoque parado e contagem errada.
+// O faturamento da semana é o da própria planilha (aba de entradas, pelo dia da venda); sem ele, o do FinVision
+// (vendas pela data da venda, como no Markup). O relatório também cruza as compras lançadas (categorias de custo,
+// sem motoboy) e dá alertas de preço, estoque parado e contagem errada.
 import express from 'express';
 import { all, get, transaction } from './db.js';
 import { check, isDate, isCents, optText, idParam, addDays, diffDays } from './util.js';
@@ -32,7 +33,11 @@ function lerSemana(s) {
     for (const k of ['est_ini_qtd', 'est_fin_qtd']) check(it[k] === null || (Number.isFinite(it[k]) && it[k] >= 0), `Quantidade inválida em "${it.item}".`);
     return it;
   });
-  return { inicio, fim, itens };
+  const fat = s.faturamento === undefined || s.faturamento === null ? null : s.faturamento;
+  check(fat === null || (isCents(fat) && fat >= 0), 'Faturamento da semana inválido.');
+  const dias = fat === null ? null : Number(s.dias_faturamento ?? 0);
+  check(dias === null || (Number.isInteger(dias) && dias >= 0 && dias <= 31), 'Dias de faturamento inválidos.');
+  return { inicio, fim, itens, faturamento: fat, dias_faturamento: dias };
 }
 
 // Sobe uma ou mais semanas; a semana que já existe (mesmo início) é substituída pela nova.
@@ -46,8 +51,9 @@ cmvRouter.post('/cmv/semanas', async (req, res) => {
     for (const s of semanas) {
       const antiga = await get('DELETE FROM cmv_semanas WHERE empresa_id = :eid AND inicio = :inicio RETURNING id', { eid: req.eid, inicio: s.inicio });
       const nova = await get(
-        'INSERT INTO cmv_semanas (empresa_id, inicio, fim, meta_pct) VALUES (:eid, :inicio, :fim, :meta) RETURNING id',
-        { eid: req.eid, inicio: s.inicio, fim: s.fim, meta: ultima?.meta_pct ?? null },
+        `INSERT INTO cmv_semanas (empresa_id, inicio, fim, meta_pct, faturamento_planilha, dias_faturamento)
+         VALUES (:eid, :inicio, :fim, :meta, :fat, :dias) RETURNING id`,
+        { eid: req.eid, inicio: s.inicio, fim: s.fim, meta: ultima?.meta_pct ?? null, fat: s.faturamento, dias: s.dias_faturamento },
       );
       for (const i of s.itens) {
         await all(
@@ -161,8 +167,13 @@ cmvRouter.get('/relatorios/cmv-semanal', async (req, res) => {
     const semana = {
       id: s.id, inicio, fim, meta_pct: s.meta_pct === null ? META_PADRAO : Number(s.meta_pct),
       estoque_inicial: soma('est_ini_valor'), compras: soma('compras'), estoque_final: soma('est_fin_valor'), cmv: soma('cmv'),
-      faturamento: await faturamentoDaSemana(req.eid, inicio, fim), compras_lancadas: await comprasLancadas(req.eid, inicio, fim),
+      faturamento_finvision: await faturamentoDaSemana(req.eid, inicio, fim), compras_lancadas: await comprasLancadas(req.eid, inicio, fim),
     };
+    const daPlanilha = s.faturamento_planilha !== null && s.faturamento_planilha !== undefined;
+    semana.faturamento = daPlanilha ? Number(s.faturamento_planilha) : semana.faturamento_finvision;
+    semana.faturamento_origem = daPlanilha ? 'planilha' : 'finvision';
+    semana.dias_faturamento = daPlanilha ? Number(s.dias_faturamento) : null;
+    semana.dias_semana = diffDays(fim, inicio) + 1;
     semana.cmv_pct = semana.faturamento ? Math.round((semana.cmv / semana.faturamento) * 10_000) / 100 : null;
     semana.markup = semana.cmv ? Math.round((semana.faturamento / semana.cmv) * 100) / 100 : null;
     semana.itens = [...its].sort((a, b) => b.cmv - a.cmv).map((i) => ({ ...i, participacao: semana.cmv ? Math.round((i.cmv / semana.cmv) * 1000) / 10 : null }));

@@ -104,6 +104,8 @@ export interface ItemCmv {
 export interface SemanaCmv {
   inicio: string; fim: string; itens: ItemCmv[];
   cmv_pct_planilha: number | null; // o "CMV %" que a própria planilha calculou, para conferir
+  faturamento: number | null; // vendas brutas da semana pela aba de entradas (dia da venda); null = sem a aba
+  dias_faturamento: number; // quantos dias da semana a aba de entradas cobre (a aba é de um mês só)
   estoque_inicial: number; compras: number; estoque_final: number; cmv: number;
   preenchida: boolean; // semana sem compras e sem estoque final ainda não foi preenchida
 }
@@ -155,17 +157,58 @@ export function semanasDaAbaCmv(grade: Grade, ref = new Date()): SemanaCmv[] {
     }
     const soma = (k: 'est_ini_valor' | 'compras' | 'est_fin_valor') => itens.reduce((s, i) => s + i[k], 0);
     const estoque_inicial = soma('est_ini_valor'), compras = soma('compras'), estoque_final = soma('est_fin_valor');
-    semanas.push({ inicio, fim, cmv_pct_planilha: pctPlanilha, itens, estoque_inicial, compras, estoque_final, cmv: estoque_inicial + compras - estoque_final, preenchida: compras > 0 || estoque_final > 0 });
+    semanas.push({ inicio, fim, cmv_pct_planilha: pctPlanilha, faturamento: null, dias_faturamento: 0, itens, estoque_inicial, compras, estoque_final, cmv: estoque_inicial + compras - estoque_final, preenchida: compras > 0 || estoque_final > 0 });
   }));
   return semanas.sort((a, b) => a.inicio.localeCompare(b.inicio));
 }
 
-/** Acha a aba de CMV (nome começando por "CMV") e lê as semanas. */
+/**
+ * Faturamento bruto por dia do mês, do primeiro bloco da aba de entradas ("ENTRADAS SISTEMA"): a coluna do dia
+ * e a coluna "TOTAL ENTRADAS". O bloco de baixo (o que caiu na conta, líquido) não é lido.
+ */
+export function faturamentoPorDia(grade: Grade): Map<number, number> {
+  const dias = new Map<number, number>();
+  const h = grade.findIndex((l) => l.some((x) => typeof x === 'string' && /TOTAL\s+ENTRADAS/i.test(x)));
+  if (h < 0) return dias;
+  const colTotal = grade[h].findIndex((x) => typeof x === 'string' && /TOTAL\s+ENTRADAS/i.test(x));
+  for (let r = h + 1; r < grade.length; r++) {
+    const d = grade[r]?.[0];
+    if (typeof d === 'number' && Number.isInteger(d) && d >= 1 && d <= 31) {
+      if (dias.has(d)) break; // começou outro bloco
+      dias.set(d, centavos(grade[r][colTotal]));
+    } else if (dias.size) break;
+  }
+  return dias;
+}
+
+/** Soma o faturamento da semana com os dias do mês da aba de entradas (só os dias que caem nesse mês). */
+export function faturamentoDasSemanas(semanas: SemanaCmv[], dias: Map<number, number>) {
+  if (!dias.size || !semanas.length) return;
+  // A aba de entradas é de um mês: o mês em que começa a maioria das semanas.
+  const contagem = new Map<string, number>();
+  for (const s of semanas) contagem.set(s.inicio.slice(0, 7), (contagem.get(s.inicio.slice(0, 7)) ?? 0) + 1);
+  const mes = [...contagem].sort((a, b) => b[1] - a[1])[0][0];
+  for (const s of semanas) {
+    let total = 0, cobertos = 0;
+    for (let d = new Date(s.inicio + 'T12:00:00'); d <= new Date(s.fim + 'T12:00:00'); d.setDate(d.getDate() + 1)) {
+      const iso = `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+      if (iso.slice(0, 7) !== mes || !dias.has(d.getDate())) continue;
+      total += dias.get(d.getDate())!;
+      cobertos++;
+    }
+    s.faturamento = cobertos ? total : null;
+    s.dias_faturamento = cobertos;
+  }
+}
+
+/** Acha a aba de CMV (nome começando por "CMV") e lê as semanas, com o faturamento da aba de entradas. */
 export async function lerCmvDoArquivo(arquivo: File, ref = new Date()) {
   const abas = await lerPlanilha(await arquivo.arrayBuffer());
   const nome = Object.keys(abas).find((n) => /^\s*CMV/i.test(n));
   if (!nome) throw new Error('Não achei a aba de CMV nesta planilha.');
   const semanas = semanasDaAbaCmv(abas[nome], ref);
   if (!semanas.length) throw new Error('Não achei nenhuma semana ("SEMANA: dd/mm A dd/mm") na aba de CMV.');
+  const entradas = Object.keys(abas).find((n) => /ENTRADAS/i.test(n));
+  if (entradas) faturamentoDasSemanas(semanas, faturamentoPorDia(abas[entradas]));
   return semanas;
 }

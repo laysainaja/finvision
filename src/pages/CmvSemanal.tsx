@@ -11,7 +11,8 @@ interface ItemSemana { id: number; unidade: string | null; item: string; valor_u
 interface Alerta { tipo: 'preco' | 'contagem' | 'parado' | 'sem_preco' | 'compras'; nivel: 'alto' | 'info'; item: string | null; texto: string }
 interface Semana {
   id: number; inicio: string; fim: string; meta_pct: number; estoque_inicial: number; compras: number; estoque_final: number; cmv: number;
-  faturamento: number; compras_lancadas: number; cmv_pct: number | null; markup: number | null; itens: ItemSemana[]; alertas: Alerta[];
+  faturamento: number; faturamento_origem: 'planilha' | 'finvision'; faturamento_finvision: number; dias_faturamento: number | null; dias_semana: number;
+  compras_lancadas: number; cmv_pct: number | null; markup: number | null; itens: ItemSemana[]; alertas: Alerta[];
 }
 interface RelCmv { semanas: Semana[]; meta_padrao: number }
 
@@ -90,7 +91,15 @@ export function CmvSemanal() {
                 <span className="small muted">do faturamento · meta {pct(s.meta_pct)}{s.cmv_pct === null ? ' · sem faturamento lançado' : acima ? ' · acima da meta' : ' · dentro da meta'}</span>
               </div>
               <div className="cartao-extrato"><span className="kpi-label">Custo da mercadoria (R$)</span><span className="cartao-valor num">{brl(s.cmv)}</span><span className="small muted">estoque inicial + compras − estoque final</span></div>
-              <div className="cartao-extrato"><span className="kpi-label">Faturamento (R$)</span><span className="cartao-valor num">{brl(s.faturamento)}</span><span className="small muted">vendas da semana no FinVision{s.markup ? ` · markup ${s.markup.toLocaleString('pt-BR')}x` : ''}</span></div>
+              <div className="cartao-extrato">
+                <span className="kpi-label">Faturamento (R$)</span><span className="cartao-valor num">{brl(s.faturamento)}</span>
+                <span className="small muted">
+                  {s.faturamento_origem === 'planilha'
+                    ? `pela planilha da loja${s.dias_faturamento !== null && s.dias_faturamento < s.dias_semana ? ` (${s.dias_faturamento} de ${s.dias_semana} dias)` : ''}`
+                    : 'vendas da semana no FinVision'}
+                  {s.markup ? ` · markup ${s.markup.toLocaleString('pt-BR')}x` : ''}
+                </span>
+              </div>
               <div className="cartao-extrato">
                 <span className="kpi-label">Contra a semana anterior</span>
                 <span className={'cartao-valor num ' + (difAnterior === null ? '' : difAnterior > 0 ? 'alerta' : 'entrada')}>{difAnterior === null ? '–' : `${difAnterior > 0 ? '+' : ''}${difAnterior.toLocaleString('pt-BR')} p.p.`}</span>
@@ -137,6 +146,9 @@ export function CmvSemanal() {
                     <tr><td>− Estoque final</td><td className="r num">{brl(s.estoque_final)}</td></tr>
                     <tr><td><b>= CMV</b></td><td className="r num"><b>{brl(s.cmv)}</b></td></tr>
                     <tr><td className="muted">Compras lançadas no FinVision</td><td className="r num muted">{brl(s.compras_lancadas)}</td></tr>
+                    {s.faturamento_origem === 'planilha' && (
+                      <tr><td className="muted">Faturamento no FinVision (pela data do lançamento)</td><td className="r num muted">{brl(s.faturamento_finvision)}</td></tr>
+                    )}
                   </tbody>
                 </table>
                 <button className="btn btn-sm btn-ghost btn-danger" style={{ marginTop: 8 }} onClick={() => excluirSemana(s)}><Icon name="lixo" /> Excluir esta semana</button>
@@ -146,8 +158,8 @@ export function CmvSemanal() {
         )}
       </div>
       <p className="muted small" style={{ margin: 0 }}>
-        CMV = estoque inicial + compras − estoque final, somando os insumos da aba de CMV. CMV % = CMV ÷ faturamento da semana (vendas lançadas no FinVision,
-        com o iFood pela data da venda). Compras lançadas = categorias de custo pagas na semana, sem motoboy. Importar de novo a mesma semana substitui a anterior.
+        CMV = estoque inicial + compras − estoque final, somando os insumos da aba de CMV. CMV % = CMV ÷ faturamento da semana: o da aba de entradas
+        da planilha (vendas brutas pelo dia da venda) ou, se a planilha não trouxer, o das vendas lançadas no FinVision. Compras lançadas = categorias de custo pagas na semana, sem motoboy. Importar de novo a mesma semana substitui a anterior.
       </p>
       {previa && <PreviaImportacao semanas={previa} onClose={() => setPrevia(null)} onImportado={() => { setPrevia(null); setEscolhida(null); recarregar(); }} />}
     </>
@@ -207,15 +219,18 @@ function PreviaImportacao({ semanas, onClose, onImportado }: { semanas: SemanaCm
   const acao = useAcao();
   const [marcadas, setMarcadas] = useState(new Set(semanas.filter((s) => s.preenchida).map((s) => s.inicio)));
   const importar = async () => {
-    const lista = semanas.filter((s) => marcadas.has(s.inicio)).map(({ inicio, fim, itens }) => ({ inicio, fim, itens }));
+    const lista = semanas.filter((s) => marcadas.has(s.inicio)).map(({ inicio, fim, itens, faturamento, dias_faturamento }) => ({ inicio, fim, itens, faturamento, dias_faturamento }));
     if (await acao(() => api.post(`${base}/cmv/semanas`, { semanas: lista }), `${lista.length} semana(s) importada(s).`)) onImportado();
   };
   return (
     <Modal titulo="Importar CMV da planilha" onClose={onClose} largura={760}
       rodape={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={importar} disabled={!marcadas.size}>Importar {marcadas.size} semana(s)</button></>}>
-      <p className="muted small" style={{ marginTop: 0 }}>Confira as semanas achadas na aba de CMV. Se a semana já estiver no FinVision, ela é substituída por esta.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>
+        Confira as semanas achadas na aba de CMV. O faturamento vem da aba de entradas (vendas brutas pelo dia da venda); sem ela, o relatório usa o do FinVision.
+        Se a semana já estiver no FinVision, ela é substituída por esta.
+      </p>
       <table className="tabela-relatorio">
-        <thead><tr><th /><th>Semana</th><th className="r">Insumos</th><th className="r">Estoque inicial</th><th className="r">Compras</th><th className="r">Estoque final</th><th className="r">CMV</th><th className="r">CMV % da planilha</th></tr></thead>
+        <thead><tr><th /><th>Semana</th><th className="r">Insumos</th><th className="r">Estoque inicial</th><th className="r">Compras</th><th className="r">Estoque final</th><th className="r">CMV</th><th className="r">Faturamento</th><th className="r">CMV %</th></tr></thead>
         <tbody>
           {semanas.map((s) => (
             <tr key={s.inicio} className={s.preenchida ? '' : 'muted'}>
@@ -226,7 +241,8 @@ function PreviaImportacao({ semanas, onClose, onImportado }: { semanas: SemanaCm
               <td className="r num">{brl(s.compras)}</td>
               <td className="r num">{brl(s.estoque_final)}</td>
               <td className="r num"><b>{brl(s.cmv)}</b></td>
-              <td className="r num">{pct(s.cmv_pct_planilha)}</td>
+              <td className="r num">{s.faturamento === null ? '–' : brl(s.faturamento)}{s.faturamento !== null && s.dias_faturamento < 7 && <div className="desc-sub">{s.dias_faturamento} dia(s)</div>}</td>
+              <td className="r num">{s.faturamento ? pct(Math.round((s.cmv / s.faturamento) * 10_000) / 100) : '–'}{s.cmv_pct_planilha !== null && <div className="desc-sub">planilha: {pct(s.cmv_pct_planilha)}</div>}</td>
             </tr>
           ))}
         </tbody>

@@ -273,6 +273,9 @@ create table if not exists cmv_itens (
   est_fin_valor bigint not null default 0
 );
 create index if not exists cmv_itens_semana on cmv_itens (semana_id);
+-- Faturamento bruto da semana pela aba de entradas da planilha (dia da venda); vazio = usa o do FinVision.
+alter table cmv_semanas add column if not exists faturamento_planilha bigint;
+alter table cmv_semanas add column if not exists dias_faturamento int;
 
 -- Integração com o Asaas (só leitura): cobranças viram contas a receber (com baixa quando pagas) e as movimentações
 -- da conta caem na conciliação. A chave de API de cada conta fica no Vault ('asaas_conta_<id>'), nunca nesta tabela.
